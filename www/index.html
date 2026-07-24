@@ -130,7 +130,7 @@
 <body>
 
 <header>
-  <div class="badge">Phase 1-6 &middot; Async, TLS, HTTP/2, Proxy, WASM</div>
+  <div class="badge">All Phases Complete &middot; Async, TLS, HTTP/2-3, WASM</div>
   <h1>A web server built the way<br><span class="accent">you'll actually push it further.</span></h1>
   <p class="tagline">NWarp is a modern HTTP server written in Rust - engineered to go beyond what Apache and Nginx offer, not just replicate it.</p>
 </header>
@@ -149,16 +149,16 @@
   </div>
 
   <div class="card">
-    <h2>What NWarp does today (Phase 1-6)</h2>
+    <h2>What NWarp does today (all phases complete)</h2>
     <ul class="checklist">
       <li>Async event loop (Tokio, epoll) - thousands of concurrent connections without a thread each</li>
-      <li>Serves static files (HTML, CSS, JS, images) over HTTP/1.1 and HTTP/2</li>
-      <li>HTTPS via TLSv1.3 (rustls/tokio-rustls), with HTTP/2 negotiated via ALPN</li>
+      <li>Serves static files (HTML, CSS, JS, images) over HTTP/1.1, HTTP/2, and HTTP/3</li>
+      <li>HTTPS via TLSv1.3 (rustls/tokio-rustls), with HTTP/2 and HTTP/3 negotiated automatically</li>
       <li>Reverse proxy with round-robin load balancing (opt-in via <code>proxy_route</code>)</li>
       <li>Active upstream health checks - dead upstreams are automatically skipped</li>
       <li>Sandboxed WASM request handlers (opt-in via <code>wasm_route</code>) - not in Apache or Nginx</li>
-      <li>Config-driven document root, host, and port</li>
-      <li>Access &amp; error logging to file</li>
+      <li>Config hot-reload for proxy/WASM routes - no restart needed</li>
+      <li>Structured JSON logging, OTel-collector-ingestible</li>
       <li>Directory-traversal protection on every request path</li>
       <li>Custom 404 / 403 / 405 / 500 / 502 / 503 error pages</li>
     </ul>
@@ -175,17 +175,14 @@
   </div>
 
   <div class="card">
-    <h2>Roadmap: built to go beyond Apache and Nginx</h2>
+    <h2>All phases complete</h2>
     <p>
-      Phase 1-6 are done: static files, TLS/HTTPS, HTTP/2, reverse
-      proxy with load balancing and health checks, an async
-      epoll-based event loop, and sandboxed WASM request handlers -
-      the differentiator neither Apache nor Nginx offer natively.
-      Planned phases add
-      reverse proxy and load balancing, HTTP/2 and HTTP/3, and a WASM
-      module system for request handlers - a capability neither Apache
-      nor Nginx offer natively. See <code>docs/ARCHITECTURE.md</code>
-      for the complete roadmap.
+      Static files, TLS/HTTPS, HTTP/2, HTTP/3 (QUIC), reverse proxy
+      with health-checked load balancing, an async epoll-based event
+      loop, sandboxed WASM request handlers, config hot-reload, and
+      structured logging - each verified with real, live tests. See
+      <code>docs/ARCHITECTURE.md</code> for the full write-up and
+      honestly-documented limitations at every stage.
     </p>
   </div>
 

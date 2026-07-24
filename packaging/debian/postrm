@@ -1,0 +1,10 @@
+#!/bin/sh
+# Post-removal script for the nwarp .deb package.
+set -e
+
+if [ "$1" = "purge" ]; then
+  userdel nwarp 2>/dev/null || true
+  rm -rf /etc/nwarp /var/log/nwarp /var/www/nwarp-default
+fi
+
+exit 0

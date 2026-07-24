@@ -1,6 +1,7 @@
 mod config;
 mod http;
 mod http2;
+mod http3;
 mod logging;
 mod proxy;
 mod server;
@@ -52,7 +53,7 @@ fn main() {
         }
     };
 
-    if let Err(e) = runtime.block_on(server::listener::run(cfg)) {
+    if let Err(e) = runtime.block_on(server::listener::run(cfg, config_path)) {
         eprintln!("[nwarp] fatal: {}", e);
         std::process::exit(1);
     }

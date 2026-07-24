@@ -5,6 +5,7 @@ use crate::http::router;
 use crate::logging::Logger;
 use crate::proxy::ProxyTable;
 use crate::wasm::WasmTable;
+use arc_swap::ArcSwap;
 use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
@@ -19,8 +20,8 @@ pub async fn handle(
     mut stream: TcpStream,
     cfg: Arc<Config>,
     logger: Arc<Logger>,
-    proxy_table: Arc<ProxyTable>,
-    wasm_table: Arc<WasmTable>,
+    proxy_table: Arc<ArcSwap<ProxyTable>>,
+    wasm_table: Arc<ArcSwap<WasmTable>>,
 ) {
     let peer = stream
         .peer_addr()
@@ -38,14 +39,18 @@ pub async fn handle(
 ///
 /// Routing precedence: proxy routes are checked first (Phase 3), then
 /// WASM routes (Phase 6), then static file serving (Phase 1) as the
-/// final fallback.
+/// final fallback. `proxy_table`/`wasm_table` are `ArcSwap`-wrapped
+/// (Phase 7) so a config hot-reload can swap in new routing tables
+/// without restarting the server - each request loads the current
+/// snapshot at the start of the request, so in-flight requests are
+/// never affected by a reload happening mid-request.
 pub async fn handle_generic<S: AsyncRead + AsyncWrite + Unpin>(
     stream: &mut S,
     peer: String,
     cfg: Arc<Config>,
     logger: Arc<Logger>,
-    proxy_table: Arc<ProxyTable>,
-    wasm_table: Arc<WasmTable>,
+    proxy_table: Arc<ArcSwap<ProxyTable>>,
+    wasm_table: Arc<ArcSwap<WasmTable>>,
 ) {
     let request = match Request::parse(stream).await {
         Ok(r) => r,
@@ -57,7 +62,8 @@ pub async fn handle_generic<S: AsyncRead + AsyncWrite + Unpin>(
         }
     };
 
-    if let Some(route) = proxy_table.match_route(&request.path) {
+    let proxy_snapshot = proxy_table.load();
+    if let Some(route) = proxy_snapshot.match_route(&request.path) {
         match crate::proxy::relay(&request, route, stream, &peer).await {
             Ok(status) => {
                 logger.access(&request.method, &request.path, status, &peer);
@@ -83,8 +89,10 @@ pub async fn handle_generic<S: AsyncRead + AsyncWrite + Unpin>(
         }
         return;
     }
+    drop(proxy_snapshot);
 
-    if let Some(route) = wasm_table.match_route(&request.path) {
+    let wasm_snapshot = wasm_table.load();
+    if let Some(route) = wasm_snapshot.match_route(&request.path) {
         match crate::wasm::invoke(route, &request.method, &request.path) {
             Ok((status, body)) => {
                 let mut resp = Response::new(status, status_text(status), &cfg.server_name);
@@ -104,6 +112,7 @@ pub async fn handle_generic<S: AsyncRead + AsyncWrite + Unpin>(
         }
         return;
     }
+    drop(wasm_snapshot);
 
     let response = router::route(&request, &cfg).await;
     logger.access(&request.method, &request.path, response.status_code, &peer);

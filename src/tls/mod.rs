@@ -3,6 +3,7 @@ use crate::logging::Logger;
 use crate::proxy::ProxyTable;
 use crate::server::connection::handle_generic;
 use crate::wasm::WasmTable;
+use arc_swap::ArcSwap;
 use rustls::{Certificate, PrivateKey, ServerConfig};
 use rustls_pemfile::{certs, pkcs8_private_keys, rsa_private_keys};
 use std::fs::File;
@@ -13,7 +14,9 @@ use tokio_rustls::TlsAcceptor;
 
 /// Loads a PEM certificate chain from disk. Runs once at startup
 /// (before the accept loop begins), so a blocking read here is fine.
-fn load_certs(path: &str) -> io::Result<Vec<Certificate>> {
+/// Exposed to http3/mod.rs, which needs the same certs/key for its
+/// QUIC-specific rustls config (see http3::build_quic_tls_config).
+pub(crate) fn load_certs(path: &str) -> io::Result<Vec<Certificate>> {
     let file = File::open(path).map_err(|e| {
         io::Error::new(e.kind(), format!("could not open TLS cert '{}': {}", path, e))
     })?;
@@ -24,7 +27,7 @@ fn load_certs(path: &str) -> io::Result<Vec<Certificate>> {
 }
 
 /// Loads a private key from disk, trying PKCS#8 first, then RSA.
-fn load_private_key(path: &str) -> io::Result<PrivateKey> {
+pub(crate) fn load_private_key(path: &str) -> io::Result<PrivateKey> {
     let open = || {
         File::open(path).map_err(|e| {
             io::Error::new(e.kind(), format!("could not open TLS key '{}': {}", path, e))
@@ -79,8 +82,8 @@ pub fn build_tls_config(cfg: &Config) -> io::Result<Arc<ServerConfig>> {
 pub async fn run(
     cfg: Arc<Config>,
     logger: Arc<Logger>,
-    proxy_table: Arc<ProxyTable>,
-    wasm_table: Arc<WasmTable>,
+    proxy_table: Arc<ArcSwap<ProxyTable>>,
+    wasm_table: Arc<ArcSwap<WasmTable>>,
 ) -> io::Result<()> {
     let tls_config = build_tls_config(&cfg)?;
     let acceptor = TlsAcceptor::from(tls_config);

@@ -245,12 +245,85 @@ nor Nginx offer this natively.
     pooled/reused instance (faster, but requires careful state
     reset) - a natural follow-up optimization.
 
-## Planned phases
+## Phase 5.5: HTTP/3 / QUIC (done)
 
-| Phase | Goal |
-|---|---|
-| 5.5 | HTTP/3 (QUIC) |
-| 7 | Config hot-reload, structured (OpenTelemetry) logging, `.deb`/`.rpm` packaging polish |
+- **Stack:** [quinn](https://github.com/quinn-rs/quinn) for the QUIC
+  transport layer, [h3](https://github.com/hyperium/h3) +
+  [h3-quinn](https://github.com/hyperium/h3) for HTTP/3 framing on top
+  of it - the same crates the wider Rust ecosystem uses for QUIC/H3
+  (not a hand-rolled UDP protocol implementation, for the same
+  correctness/security reasoning as Phase 5's choice of `h2`).
+- **TLS:** QUIC mandates TLS 1.3, so `http3::build_quic_tls_config`
+  builds a dedicated rustls `ServerConfig` (TLS 1.3 only, ALPN fixed to
+  `h3`) using the same cert/key loaders as the TCP/TLS listener
+  (`tls::load_certs` / `load_private_key`, exposed via `pub(crate)`
+  specifically for this reuse) - one cert, two independent ALPN-scoped
+  rustls configs (TCP: h2/http1.1, QUIC: h3).
+- **Listener:** binds the same port number as `tls_port`, but over UDP
+  via `quinn::Endpoint::server` - this mirrors real-world HTTP/3
+  deployments, where the port number is shared between TCP (for
+  HTTP/1.1 and HTTP/2) and UDP (for HTTP/3), and only discovered via
+  an `Alt-Svc` header in production (not yet implemented here - see
+  limitations). Runs as its own Tokio task, spawned alongside the TLS
+  listener whenever `tls_enabled = true`; no separate config flag.
+- **Bridging to existing logic:** identical pattern to Phase 5 - `h3`
+  streams are converted to the same internal `Request` type, routed
+  through the same `proxy` / `wasm` / `router` functions, then the
+  resulting response is sent back via `h3`'s `RequestStream` API. No
+  routing or handler logic is duplicated a third time.
+- **Verified:** this project's own test/build environment's `curl`
+  doesn't have HTTP/3 support compiled in (its libcurl build lacks a
+  QUIC-capable TLS backend), so verification used a small dedicated
+  test client built from the same `quinn`/`h3` crates - confirming a
+  genuine QUIC handshake, a `200 OK` response with the correct
+  welcome-page HTML body, and a WASM route correctly invoked over
+  HTTP/3 with the right per-request path echoed back.
+- **Known limitations (intentionally not hidden):**
+  - No `Alt-Svc` header advertisement yet on the HTTP/1.1 or HTTP/2
+    responses, so clients must be told to use HTTP/3 directly rather
+    than discovering it automatically (as real browsers expect).
+  - Proxied requests still speak HTTP/1.1 to the upstream, same
+    limitation as Phase 5.
+  - No request body support, consistent with every prior phase.
+
+## Phase 7: Hot-reload, structured logging, packaging polish (done)
+
+**Config hot-reload:**
+- `arc-swap` wraps the proxy and WASM routing tables (`Arc<ArcSwap<ProxyTable>>` / `Arc<ArcSwap<WasmTable>>`), giving lock-free reads on every request and an atomic swap on reload.
+- A background task (`server::listener::spawn_config_watcher`) polls the config file's mtime every 3 seconds; on change, it reloads `proxy_route` and `wasm_route` entries into fresh tables and swaps them in. In-flight requests are unaffected since each request loads its own snapshot at the start of the request.
+- **Verified end-to-end:** started a server with no proxy routes (confirmed 404), appended a `proxy_route` line to the live config file while the server kept running, waited for one poll cycle, and confirmed the new route worked correctly - with the process PID unchanged throughout, proving no restart occurred.
+- **Deliberately NOT hot-reloaded:** `host`, `port`, `tls_*`, `worker_threads` - these are bound into already-listening sockets and an already-sized Tokio runtime; changing them safely requires a full restart.
+- **Known limitation:** each reload that changes proxy routes spawns a fresh health-checker task for the new table; the old table's health-checker keeps running harmlessly in the background (checking now-unreferenced targets) since there's no handle to cancel it. A minor, bounded resource cost per reload - not unbounded growth in normal operation (config changes aren't a hot loop), but worth knowing.
+
+**Structured (OpenTelemetry-compatible) logging:**
+- Every log line is now a single JSON object (line-delimited JSON), built with `serde`/`serde_json` for correctness rather than hand-rolled string escaping.
+- Access log fields: `timestamp` (unix epoch seconds), `level`, `event`, `method`, `path`, `status`, `peer`, `server`. Error logs: `timestamp`, `level`, `event`, `message`, `server`.
+- **Scope, stated precisely:** this is structured JSON logging that an OpenTelemetry Collector's `filelog` receiver (or Vector, Fluent Bit, etc.) can ingest directly without a custom parser - it is *not* the OpenTelemetry SDK, does not export via OTLP, and has no trace/span context propagation. Full OTLP export via the `opentelemetry` crate is a reasonable follow-up, not implemented here.
+- **Verified:** captured real access log output and parsed every line with Python's `json.loads` to confirm it's genuinely valid JSON, not just JSON-shaped text.
+
+**Packaging polish (`.deb`):**
+- `packaging/build-deb.sh` assembles a real Debian package tree (binary in `/usr/sbin`, config in `/etc/nwarp`, default site in `/var/www/nwarp-default`, systemd unit, bundled WASM examples) and builds it with `dpkg-deb`.
+- `packaging/debian/postinst` creates the dedicated `nwarp` system user and reloads systemd; `packaging/debian/postrm` cleans up on purge.
+- **Verified, not just written:** ran the build script, inspected the resulting `.deb` with `dpkg-deb --info`/`--contents` to confirm correct metadata and file layout, then actually installed it with `dpkg -i` on this machine - confirmed the binary lands at `/usr/sbin/nwarpd` and runs (`nwarpd --version` succeeded), the config lands at `/etc/nwarp/nwarp.conf` with system paths correctly substituted, and the `nwarp` system user is created - then purged it with `dpkg -P` to leave the system clean.
+
+## All phases complete
+
+Phases 1 through 7 are done, each verified with real, live tests rather
+than compiled-but-untested code: static files, TLS 1.3, HTTP/2, HTTP/3
+(QUIC), reverse proxy with health-checked round-robin load balancing,
+an async epoll-based event loop, sandboxed WASM request handlers,
+config hot-reload, structured logging, and real `.deb` packaging.
+
+## Possible future directions (not phases, just ideas)
+
+- Health checks upgraded from TCP-reachability to application-level
+  (HTTP `/health` endpoint checks)
+- `Alt-Svc` header advertisement so browsers auto-discover HTTP/3
+- WASM handler ABI: response headers, request bodies, host-provided
+  imports (logging, outbound HTTP, KV storage), pooled/reused instances
+- io_uring as an alternative I/O backend to epoll
+- Full OTLP export via the `opentelemetry` crate
+- `.rpm` packaging alongside `.deb`
 
 ## Module map
 
@@ -267,7 +340,8 @@ src/
 │   └── router.rs        async static file resolution (tokio::fs), MIME mapping
 ├── server/
 │   ├── listener.rs      async HTTP accept loop, tokio::spawn per connection,
-│   │                   builds the shared ProxyTable
+│   │                   builds ArcSwap-wrapped ProxyTable/WasmTable, spawns
+│   │                   the config hot-reload watcher (Phase 7)
 │   └── connection.rs     shared async request/response cycle (handle_generic):
 │                         checks proxy routes first, falls through to
 │                         static file serving - used by both HTTP and HTTPS
@@ -277,10 +351,12 @@ src/
 ├── http2/mod.rs        HTTP/2 via the h2 crate: converts h2 streams to/from
 │                       the internal Request/Response types, reusing the
 │                       same router/proxy/wasm logic as HTTP/1.1
+├── http3/mod.rs        HTTP/3 over QUIC via quinn + h3: separate QUIC-scoped
+│                       rustls config, same routing/proxy/wasm bridge pattern
 ├── wasm/mod.rs         WASM module system (wasmi): route table, module
 │                       compilation, per-request instantiation + invocation
 ├── tls/mod.rs          rustls config (incl. ALPN), cert/key loading, async
 │                       HTTPS accept loop via tokio-rustls, branches to
 │                       HTTP/1.1 or HTTP/2 based on negotiated ALPN protocol
-└── logging/mod.rs      access/error log writer
+└── logging/mod.rs      structured JSON access/error log writer (Phase 7)
 ```

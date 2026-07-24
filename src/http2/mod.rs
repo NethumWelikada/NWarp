@@ -5,6 +5,7 @@ use crate::http::router;
 use crate::logging::Logger;
 use crate::proxy::ProxyTable;
 use crate::wasm::WasmTable;
+use arc_swap::ArcSwap;
 use bytes::Bytes;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -21,8 +22,8 @@ pub async fn serve<S>(
     io: S,
     cfg: Arc<Config>,
     logger: Arc<Logger>,
-    proxy_table: Arc<ProxyTable>,
-    wasm_table: Arc<WasmTable>,
+    proxy_table: Arc<ArcSwap<ProxyTable>>,
+    wasm_table: Arc<ArcSwap<WasmTable>>,
     peer: String,
 ) where
     S: AsyncRead + AsyncWrite + Unpin,
@@ -64,8 +65,8 @@ async fn handle_stream(
     mut respond: h2::server::SendResponse<Bytes>,
     cfg: Arc<Config>,
     logger: Arc<Logger>,
-    proxy_table: Arc<ProxyTable>,
-    wasm_table: Arc<WasmTable>,
+    proxy_table: Arc<ArcSwap<ProxyTable>>,
+    wasm_table: Arc<ArcSwap<WasmTable>>,
     peer: String,
 ) {
     let request = to_nwarp_request(&h2_request);
@@ -75,7 +76,8 @@ async fn handle_stream(
     // client-facing and upstream-facing protocols are independent).
     // The raw HTTP/1.1 response from proxy::relay_raw is parsed back
     // into status/headers/body here to bridge it onto the h2 stream.
-    if let Some(route) = proxy_table.match_route(&request.path) {
+    let proxy_snapshot = proxy_table.load();
+    if let Some(route) = proxy_snapshot.match_route(&request.path) {
         match crate::proxy::relay_raw(&request, route, &peer).await {
             Ok(raw_bytes) => {
                 let (status, body) = crate::proxy::split_raw_response(&raw_bytes);
@@ -97,8 +99,10 @@ async fn handle_stream(
         }
         return;
     }
+    drop(proxy_snapshot);
 
-    if let Some(route) = wasm_table.match_route(&request.path) {
+    let wasm_snapshot = wasm_table.load();
+    if let Some(route) = wasm_snapshot.match_route(&request.path) {
         match crate::wasm::invoke(route, &request.method, &request.path) {
             Ok((status, body)) => {
                 logger.access(&request.method, &request.path, status, &peer);
@@ -113,6 +117,7 @@ async fn handle_stream(
         }
         return;
     }
+    drop(wasm_snapshot);
 
     let response = router::route(&request, &cfg).await;
     logger.access(&request.method, &request.path, response.status_code, &peer);
