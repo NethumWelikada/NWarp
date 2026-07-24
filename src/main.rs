@@ -1,6 +1,7 @@
 mod config;
 mod http;
 mod logging;
+mod proxy;
 mod server;
 mod tls;
 

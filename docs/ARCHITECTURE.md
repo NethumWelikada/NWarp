@@ -40,12 +40,40 @@ Dalhousie University, Halifax, Nova Scotia, Canada.*
   self-signed cert generator ships at `scripts/generate-dev-cert.sh`;
   production deployments should use a real CA (e.g. Let's Encrypt).
 
+## Phase 3: Reverse proxy + load balancing (done)
+
+- **Config:** `proxy_route <prefix> = <upstream1>,<upstream2>,...`
+  lines in `nwarp.conf`, parsed into `Config::proxy_routes`. Fully
+  opt-in - an empty list (the default) means every request falls
+  through to static file serving exactly as in Phase 1.
+- **Matching:** longest-prefix match across all configured routes
+  (`proxy::ProxyTable::match_route`), checked before static file
+  resolution in `connection::handle_generic`.
+- **Load balancing:** simple round-robin via a per-route
+  `AtomicUsize` counter (`proxy::ProxyRoute::pick_upstream`), safe to
+  share across the thread pool without locking.
+- **Relay:** `proxy::relay` opens a fresh TCP connection to the chosen
+  upstream per request, rebuilds the request line and headers
+  (forwarding `X-Forwarded-For`, overriding `Host`), and streams the
+  raw upstream response back to the client byte-for-byte - verified
+  end-to-end against two real upstream HTTP servers with alternating
+  A/B/A/B/A/B round-robin.
+- **Known limitations (intentionally not hidden):**
+  - No active health checking - a downed upstream still receives its
+    round-robin turn and returns `502 Bad Gateway` for that request,
+    rather than being automatically skipped. Passive/active health
+    checks are a natural Phase 3 follow-up, not yet built.
+  - Upstreams must be plain HTTP; proxying to a TLS-terminated
+    upstream is a later phase.
+  - Request bodies are not forwarded yet (consistent with Phase 1's
+    header-only request parsing).
+
 ## Planned phases
 
 | Phase | Goal |
 |---|---|
-| 3 | Move from thread-per-connection to an epoll/io_uring event loop |
-| 4 | Reverse proxy + load balancing |
+| 3.5 | Upstream health checks (active/passive) + automatic failover |
+| 4 | Move from thread-per-connection to an epoll/io_uring event loop |
 | 5 | HTTP/2, then HTTP/3 (QUIC) |
 | 6 | WASM module system for request handlers (the "advanced feature" differentiator vs Apache/Nginx) |
 | 7 | Config hot-reload, structured (OpenTelemetry) logging, `.deb`/`.rpm` packaging polish |
@@ -55,7 +83,7 @@ Dalhousie University, Halifax, Nova Scotia, Canada.*
 ```
 src/
 ├── main.rs           entry point, CLI args, config path resolution
-├── config/mod.rs      config file loading (incl. TLS settings)
+├── config/mod.rs      config file loading (incl. TLS + proxy_route settings)
 ├── http/
 │   ├── request.rs      request-line + header parsing, path sanitization
 │   │                   (generic over any Read stream)
@@ -63,10 +91,13 @@ src/
 │   │                   (generic over any Write stream)
 │   └── router.rs        static file resolution, MIME type mapping
 ├── server/
-│   ├── listener.rs      plain HTTP TCP bind + accept loop, spawns TLS thread
+│   ├── listener.rs      plain HTTP TCP bind + accept loop, spawns TLS thread,
+│   │                   builds the shared ProxyTable
 │   ├── pool.rs           fixed-size thread pool
-│   └── connection.rs     shared request/response cycle (handle_generic),
-│                         used by both HTTP and HTTPS
+│   └── connection.rs     shared request/response cycle (handle_generic):
+│                         checks proxy routes first, falls through to
+│                         static file serving - used by both HTTP and HTTPS
+├── proxy/mod.rs        ProxyTable, round-robin upstream selection, relay logic
 ├── tls/mod.rs          rustls config, cert/key loading, HTTPS accept loop
 └── logging/mod.rs      access/error log writer
 ```

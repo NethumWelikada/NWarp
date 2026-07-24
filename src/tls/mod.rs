@@ -1,5 +1,6 @@
 use crate::config::Config;
 use crate::logging::Logger;
+use crate::proxy::ProxyTable;
 use crate::server::connection::handle_generic;
 use crate::server::pool::ThreadPool;
 use rustls::{Certificate, PrivateKey, ServerConfig, ServerConnection, Stream};
@@ -66,7 +67,7 @@ pub fn build_tls_config(cfg: &Config) -> io::Result<Arc<ServerConfig>> {
 /// a TLS handshake via rustls, then is handed to the same
 /// `handle_generic` request/response cycle used by plain HTTP - see
 /// server/connection.rs.
-pub fn run(cfg: Arc<Config>, logger: Arc<Logger>) -> io::Result<()> {
+pub fn run(cfg: Arc<Config>, logger: Arc<Logger>, proxy_table: Arc<ProxyTable>) -> io::Result<()> {
     let tls_config = build_tls_config(&cfg)?;
     let addr = format!("{}:{}", cfg.host, cfg.tls_port);
     let listener = TcpListener::bind(&addr)?;
@@ -80,6 +81,7 @@ pub fn run(cfg: Arc<Config>, logger: Arc<Logger>) -> io::Result<()> {
                 let cfg = Arc::clone(&cfg);
                 let logger = Arc::clone(&logger);
                 let tls_config = Arc::clone(&tls_config);
+                let proxy_table = Arc::clone(&proxy_table);
 
                 pool.execute(move || {
                     let peer = tcp
@@ -90,7 +92,7 @@ pub fn run(cfg: Arc<Config>, logger: Arc<Logger>) -> io::Result<()> {
                     match ServerConnection::new(tls_config) {
                         Ok(mut conn) => {
                             let mut tls_stream = Stream::new(&mut conn, &mut tcp);
-                            handle_generic(&mut tls_stream, peer, cfg, logger);
+                            handle_generic(&mut tls_stream, peer, cfg, logger, proxy_table);
                         }
                         Err(e) => {
                             logger.error(&format!("TLS handshake setup failed for {}: {}", peer, e));

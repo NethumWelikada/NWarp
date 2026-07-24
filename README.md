@@ -5,11 +5,12 @@ A modern, high-performance HTTP web server written in Rust, built by
 Dalhousie University, Halifax, Nova Scotia, Canada - engineered to go
 beyond what Apache and Nginx offer, not just replicate it.
 
-> Phase 1-2 (this release): static file serving, thread-pool concurrency,
-> config file, access/error logging, directory-traversal protection, and
-> TLS/HTTPS via rustls (TLSv1.3). See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-> for the full roadmap: reverse proxy + load balancing, HTTP/2 & HTTP/3,
-> and a WASM module system that neither Apache nor Nginx offer natively.
+> Phase 1-3 (this release): static file serving, thread-pool concurrency,
+> config file, access/error logging, directory-traversal protection,
+> TLS/HTTPS via rustls (TLSv1.3), and reverse proxy with round-robin
+> load balancing. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for
+> the full roadmap: HTTP/2 & HTTP/3, and a WASM module system that
+> neither Apache nor Nginx offer natively.
 
 ## Requirements
 
@@ -88,6 +89,35 @@ browser will warn about the self-signed cert during local testing -
 that's expected; proceed past it, or use a real CA cert to avoid the
 warning entirely).
 
+## Reverse proxy + load balancing (Phase 3)
+
+NWarp can proxy requests matching a path prefix to one or more
+upstream servers, load-balanced round-robin. This is opt-in - if
+`configs/nwarp.conf` has no `proxy_route` lines, NWarp behaves exactly
+like Phase 1/2 (static files only).
+
+**Configure one or more routes:**
+
+```ini
+proxy_route /api = http://127.0.0.1:5001,http://127.0.0.1:5002
+proxy_route /app = http://127.0.0.1:6000
+```
+
+Any request whose path starts with `/api` is forwarded to whichever of
+the two upstreams is next in round-robin rotation. Requests to `/app`
+go to the single upstream configured there. Everything else continues
+to be served as static files from `document_root`, unchanged.
+
+**Current limitations (honest, so you don't hit surprises):**
+- No active health checking yet - if an upstream is down, requests
+  routed to it during its round-robin turn will get a `502 Bad
+  Gateway`, rather than automatically skipping to a healthy upstream.
+  Automatic failover is a natural follow-up but isn't built yet.
+- Upstreams must be plain HTTP (not HTTPS) for now - proxying to a TLS
+  upstream is a later phase.
+- Request bodies (POST/PUT payloads) aren't forwarded yet, consistent
+  with static-file-serving-only request parsing in Phase 1.
+
 ## Installing system-wide (like `apache2`/`nginx`)
 
 This sets NWarp up the same way Apache/Nginx are installed: a dedicated
@@ -146,6 +176,7 @@ nwarp/
 │   ├── systemd/            nwarp.service unit file
 │   └── debian/             .deb control file (Tier 2 packaging, WIP)
 ├── docs/ARCHITECTURE.md   design notes + roadmap
+├── src/proxy/mod.rs       reverse proxy + round-robin load balancing
 ├── install.sh             system-wide installer (Tier 1 packaging)
 └── LICENSE                MIT (with attribution)
 ```
@@ -153,9 +184,8 @@ nwarp/
 ## Roadmap
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the phased plan -
-reverse proxy + load balancing, HTTP/2 & HTTP/3, and a WASM-based
-module system as the long-term differentiator against Apache and
-Nginx.
+HTTP/2 & HTTP/3, and a WASM-based module system as the long-term
+differentiator against Apache and Nginx.
 
 ## License
 

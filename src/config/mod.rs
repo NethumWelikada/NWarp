@@ -18,6 +18,10 @@ pub struct Config {
     pub tls_port: u16,
     pub tls_cert: String,
     pub tls_key: String,
+    /// (path_prefix, upstream_urls) pairs, parsed from `proxy_route`
+    /// lines. Empty by default - proxying is fully opt-in and does not
+    /// affect static file serving unless configured.
+    pub proxy_routes: Vec<(String, Vec<String>)>,
 }
 
 impl Default for Config {
@@ -35,6 +39,7 @@ impl Default for Config {
             tls_port: 9443,
             tls_cert: "./certs/dev-cert.pem".to_string(),
             tls_key: "./certs/dev-key.pem".to_string(),
+            proxy_routes: Vec::new(),
         }
     }
 }
@@ -104,6 +109,22 @@ impl Config {
         }
         if let Some(v) = map.get("tls_key") {
             cfg.tls_key = v.clone();
+        }
+
+        // proxy_route <prefix> = <upstream1>,<upstream2>,...
+        // Each line has a unique key ("proxy_route /api", "proxy_route /app"),
+        // so the flat key=value map from parse_kv already separates them.
+        for (k, v) in &map {
+            if let Some(prefix) = k.strip_prefix("proxy_route ") {
+                let upstreams: Vec<String> = v
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                if !upstreams.is_empty() {
+                    cfg.proxy_routes.push((prefix.trim().to_string(), upstreams));
+                }
+            }
         }
 
         cfg

@@ -41,6 +41,12 @@ impl Response {
         r
     }
 
+    pub fn bad_gateway(server_name: &str) -> Self {
+        let mut r = Response::new(502, "Bad Gateway", server_name);
+        r.set_html_body(&page(502, "Bad Gateway", server_name));
+        r
+    }
+
     pub fn set_html_body(&mut self, html: &str) {
         self.content_type = "text/html; charset=utf-8".to_string();
         self.body = html.as_bytes().to_vec();
