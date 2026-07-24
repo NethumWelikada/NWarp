@@ -51,15 +51,21 @@ fn load_private_key(path: &str) -> io::Result<PrivateKey> {
 }
 
 /// Builds the rustls server config from the configured cert/key paths.
+/// Advertises both `h2` and `http/1.1` via ALPN so TLS clients that
+/// support HTTP/2 negotiate it automatically during the handshake -
+/// see server::run below for how the negotiated protocol is used to
+/// choose the HTTP/1.1 or HTTP/2 code path per connection.
 pub fn build_tls_config(cfg: &Config) -> io::Result<Arc<ServerConfig>> {
     let certs = load_certs(&cfg.tls_cert)?;
     let key = load_private_key(&cfg.tls_key)?;
 
-    let tls_config = ServerConfig::builder()
+    let mut tls_config = ServerConfig::builder()
         .with_safe_defaults()
         .with_no_client_auth()
         .with_single_cert(certs, key)
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+
+    tls_config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
 
     Ok(Arc::new(tls_config))
 }
@@ -93,7 +99,19 @@ pub async fn run(cfg: Arc<Config>, logger: Arc<Logger>, proxy_table: Arc<ProxyTa
 
                     match acceptor.accept(tcp).await {
                         Ok(mut tls_stream) => {
-                            handle_generic(&mut tls_stream, peer, cfg, logger, proxy_table).await;
+                            // ALPN negotiated during the TLS handshake tells us
+                            // whether the client wants HTTP/2 or HTTP/1.1 (Phase 5).
+                            let negotiated_h2 = tls_stream
+                                .get_ref()
+                                .1
+                                .alpn_protocol()
+                                == Some(b"h2".as_ref());
+
+                            if negotiated_h2 {
+                                crate::http2::serve(tls_stream, cfg, logger, proxy_table, peer).await;
+                            } else {
+                                handle_generic(&mut tls_stream, peer, cfg, logger, proxy_table).await;
+                            }
                         }
                         Err(e) => {
                             logger.error(&format!("TLS handshake failed for {}: {}", peer, e));

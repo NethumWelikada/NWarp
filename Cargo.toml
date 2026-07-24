@@ -16,6 +16,10 @@ rustls = "0.21"
 rustls-pemfile = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "time", "fs", "sync", "macros"] }
 tokio-rustls = "0.24"
+h2 = "0.3"
+http = "0.2"
+bytes = "1"
+indexmap = "=2.2.6"
 
 [profile.release]
 opt-level = 3

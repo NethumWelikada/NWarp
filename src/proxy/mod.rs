@@ -133,20 +133,12 @@ fn strip_scheme(upstream: &str) -> &str {
         .trim_start_matches("http://")
 }
 
-/// Forwards a request to a healthy upstream (chosen round-robin) and
-/// relays the raw response bytes straight back to the client. Returns
-/// the parsed upstream status code for logging purposes.
-///
-/// Returns an error if no healthy upstream is available for this
-/// route, or if the connection/relay itself fails - see
-/// `server::connection::handle_generic` for how each case maps to a
-/// client-facing status code (503 vs 502 respectively).
-pub async fn relay<S: AsyncWrite + Unpin>(
-    req: &Request,
-    route: &ProxyRoute,
-    client: &mut S,
-    peer: &str,
-) -> io::Result<u16> {
+/// Connects to a healthy upstream (chosen round-robin) and returns the
+/// raw HTTP/1.1 response bytes. Shared by both `relay` (HTTP/1.1
+/// client - pipes bytes straight through) and `relay_raw` (HTTP/2
+/// client - see http2/mod.rs, which can't forward raw HTTP/1.1 bytes
+/// onto an h2 stream and instead parses status/body out of them).
+async fn fetch_from_upstream(req: &Request, route: &ProxyRoute, peer: &str) -> io::Result<Vec<u8>> {
     let upstream_addr = route
         .pick_upstream()
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "no healthy upstream available"))?;
@@ -168,15 +160,53 @@ pub async fn relay<S: AsyncWrite + Unpin>(
 
     upstream.write_all(request_text.as_bytes()).await?;
 
-    let response_bytes =
-        tokio::time::timeout(Duration::from_secs(10), read_all(&mut upstream)).await??;
+    tokio::time::timeout(Duration::from_secs(10), read_all(&mut upstream)).await?
+}
 
+/// Forwards a request to a healthy upstream and relays the raw
+/// response bytes straight back to an HTTP/1.1 client. Returns the
+/// parsed upstream status code for logging purposes.
+///
+/// Returns an error if no healthy upstream is available for this
+/// route, or if the connection/relay itself fails - see
+/// `server::connection::handle_generic` for how each case maps to a
+/// client-facing status code (503 vs 502 respectively).
+pub async fn relay<S: AsyncWrite + Unpin>(
+    req: &Request,
+    route: &ProxyRoute,
+    client: &mut S,
+    peer: &str,
+) -> io::Result<u16> {
+    let response_bytes = fetch_from_upstream(req, route, peer).await?;
     let status = extract_status(&response_bytes);
 
     client.write_all(&response_bytes).await?;
     client.flush().await?;
 
     Ok(status)
+}
+
+/// Same upstream fetch as `relay`, but returns the raw bytes instead
+/// of writing them to a client stream - used by the HTTP/2 path
+/// (http2/mod.rs), which needs to parse out the status/body and send
+/// them as proper h2 frames rather than piping raw HTTP/1.1 wire bytes.
+pub async fn relay_raw(req: &Request, route: &ProxyRoute, peer: &str) -> io::Result<Vec<u8>> {
+    fetch_from_upstream(req, route, peer).await
+}
+
+/// Splits a raw HTTP/1.1 response into (status_code, body_bytes),
+/// discarding the header block. Used by the HTTP/2 bridge since h2
+/// needs the body as a standalone byte slice, not wire-format bytes
+/// with headers still attached.
+pub fn split_raw_response(raw: &[u8]) -> (u16, Vec<u8>) {
+    let status = extract_status(raw);
+    let separator = b"\r\n\r\n";
+    let body = raw
+        .windows(separator.len())
+        .position(|w| w == separator)
+        .map(|pos| raw[pos + separator.len()..].to_vec())
+        .unwrap_or_default();
+    (status, body)
 }
 
 async fn read_all<R: AsyncRead + Unpin>(stream: &mut R) -> io::Result<Vec<u8>> {

@@ -5,13 +5,14 @@ A modern, high-performance HTTP web server written in Rust, built by
 Dalhousie University, Halifax, Nova Scotia, Canada - engineered to go
 beyond what Apache and Nginx offer, not just replicate it.
 
-> Phase 1-4 (this release): static file serving, an async event loop
+> Phase 1-5 (this release): static file serving, an async event loop
 > (Tokio, epoll-based on Linux), config file, access/error logging,
 > directory-traversal protection, TLS/HTTPS via rustls (TLSv1.3),
-> reverse proxy with round-robin load balancing, and active upstream
-> health checks. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for
-> the full roadmap: HTTP/2 & HTTP/3, and a WASM module system that
-> neither Apache nor Nginx offer natively.
+> reverse proxy with round-robin load balancing, active upstream
+> health checks, and HTTP/2 (negotiated via ALPN). See
+> [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full roadmap:
+> HTTP/3 (QUIC), and a WASM module system that neither Apache nor
+> Nginx offer natively.
 
 ## Requirements
 
@@ -89,6 +90,34 @@ tls_key = ./certs/dev-key.pem
 browser will warn about the self-signed cert during local testing -
 that's expected; proceed past it, or use a real CA cert to avoid the
 warning entirely).
+
+## HTTP/2 (Phase 5)
+
+NWarp negotiates HTTP/2 automatically over HTTPS via ALPN - no
+separate config flag needed. If TLS is enabled (see above), any
+HTTP/2-capable client (modern browsers, `curl --http2`) that connects
+gets HTTP/2 automatically; clients that don't support it fall back to
+HTTP/1.1 on the same port, exactly as real-world servers behave.
+
+```bash
+curl -sk --http2 -v https://localhost:9443/ 2>&1 | grep "using HTTP"
+# * using HTTP/2
+```
+
+Static file serving and reverse proxying both work over HTTP/2 -
+verified end-to-end, including 404s and proxy round-robin.
+
+**Current limitations (honest, so you don't hit surprises):**
+- HTTP/2 is only available over TLS (`h2` via ALPN). Cleartext HTTP/2
+  (`h2c`, used by some internal service-to-service traffic) is not
+  implemented - the plain HTTP port (9090 by default) continues to
+  speak HTTP/1.1 only.
+- When proxying, NWarp still talks HTTP/1.1 to the upstream regardless
+  of which protocol the client used to reach NWarp itself - this
+  matches how most reverse proxies operate (client-facing and
+  upstream-facing protocols are independent), but it's worth knowing
+  the multiplexing benefit of HTTP/2 doesn't currently extend past
+  NWarp to the upstream.
 
 ## Reverse proxy + load balancing (Phase 3, health checks in 3.5)
 
@@ -186,6 +215,7 @@ nwarp/
 │   └── debian/             .deb control file (Tier 2 packaging, WIP)
 ├── docs/ARCHITECTURE.md   design notes + roadmap
 ├── src/proxy/mod.rs       reverse proxy + round-robin load balancing
+├── src/http2/mod.rs       HTTP/2 (h2 crate bridge to internal Request/Response)
 ├── install.sh             system-wide installer (Tier 1 packaging)
 └── LICENSE                MIT (with attribution)
 ```
@@ -193,7 +223,7 @@ nwarp/
 ## Roadmap
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the phased plan -
-HTTP/2 & HTTP/3, and a WASM-based module system as the long-term
+HTTP/3 (QUIC), and a WASM-based module system as the long-term
 differentiator against Apache and Nginx.
 
 ## License

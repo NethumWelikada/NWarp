@@ -137,11 +137,53 @@ Dalhousie University, Halifax, Nova Scotia, Canada.*
   uses, and is a substantial, verified upgrade over Phase 1-3.5's
   thread-per-connection approach.
 
+## Phase 5: HTTP/2 (done)
+
+- **Library:** [h2](https://github.com/hyperium/h2) - the low-level
+  HTTP/2 crate maintained by the same team behind `hyper`, built on
+  Tokio. Hand-rolling HTTP/2 (binary framing, HPACK header
+  compression, stream multiplexing, flow control) from scratch would
+  be a multi-month effort on its own and a significant correctness/
+  security risk; using the production-grade crate the wider Rust
+  ecosystem already relies on is the same engineering call real
+  servers make.
+- **Negotiation:** HTTP/2 is offered via ALPN during the TLS handshake
+  only (`tls::build_tls_config` now sets
+  `alpn_protocols = ["h2", "http/1.1"]`). After `tokio-rustls` completes
+  the handshake, the negotiated protocol
+  (`tls_stream.get_ref().1.alpn_protocol()`) decides whether the
+  connection is hopped to `http2::serve` or the existing HTTP/1.1
+  `handle_generic` path - both live side by side on the same TLS port.
+  Cleartext HTTP/2 (h2c) is out of scope; the plain HTTP port remains
+  HTTP/1.1-only.
+- **Bridging to existing logic:** rather than duplicating routing and
+  proxying, `http2::handle_stream` converts an incoming h2
+  `http::Request` into the same internal `Request` struct used by
+  HTTP/1.1, calls the same `router::route` / `proxy` functions, then
+  converts the resulting internal `Response` (or, for proxied
+  requests, a parsed raw upstream response via the new
+  `proxy::relay_raw` / `proxy::split_raw_response`) into an h2 response
+  + data frame. Static file serving, routing, and proxying logic is
+  not duplicated between HTTP/1.1 and HTTP/2 - only the wire-level
+  adapters differ.
+- **Verified:** `curl --http2 -v` against the TLS port shows the real
+  ALPN negotiation (`ALPN: server accepted h2`, `using HTTP/2`) and
+  actual H2 frames; confirmed `http_version: 2` (curl's own protocol
+  report) for the welcome page, a 404, and a proxied request with the
+  correct upstream body relayed through. HTTP/1.1 clients on the same
+  port continue to work (`http_version: 1.1`), and plain HTTP (no TLS)
+  is unaffected.
+- **Known limitations (intentionally not hidden):**
+  - h2c (cleartext HTTP/2) is not implemented.
+  - Proxied requests still speak HTTP/1.1 to the upstream regardless of
+    which protocol the client used to reach NWarp - the HTTP/2
+    multiplexing benefit doesn't currently extend past NWarp itself.
+
 ## Planned phases
 
 | Phase | Goal |
 |---|---|
-| 5 | HTTP/2, then HTTP/3 (QUIC) |
+| 5.5 | HTTP/3 (QUIC) |
 | 6 | WASM module system for request handlers (the "advanced feature" differentiator vs Apache/Nginx) |
 | 7 | Config hot-reload, structured (OpenTelemetry) logging, `.deb`/`.rpm` packaging polish |
 
@@ -166,7 +208,12 @@ src/
 │                         static file serving - used by both HTTP and HTTPS
 ├── proxy/mod.rs        ProxyTable, round-robin + health-tracked upstream
 │                       selection, async background health checker, async relay
-├── tls/mod.rs          rustls config, cert/key loading, async HTTPS accept
-│                       loop via tokio-rustls
+│                       (relay + relay_raw variants - see http2/mod.rs)
+├── http2/mod.rs        HTTP/2 via the h2 crate: converts h2 streams to/from
+│                       the internal Request/Response types, reusing the
+│                       same router/proxy logic as HTTP/1.1
+├── tls/mod.rs          rustls config (incl. ALPN), cert/key loading, async
+│                       HTTPS accept loop via tokio-rustls, branches to
+│                       HTTP/1.1 or HTTP/2 based on negotiated ALPN protocol
 └── logging/mod.rs      access/error log writer
 ```
