@@ -26,7 +26,7 @@ of design goals:
   and HTTP/3 all convert incoming requests into the same internal
   `Request` type and run through the same static-file/proxy/WASM
   routing logic, rather than three separate implementations
-- **Async by default** - every connection is a lightweight Tokio task
+- **Async by default** - every connection is a fast Tokio task
   multiplexed over a small, fixed pool of OS threads (epoll on Linux),
   not a thread per connection
 - **A real plugin model, sandboxed** - request handlers can be
@@ -196,7 +196,7 @@ src/
 
 - **Runtime:** [Tokio](https://tokio.rs)'s multi-threaded scheduler,
   using epoll as its I/O reactor on Linux. Every connection becomes a
-  lightweight Tokio task rather than an OS thread -
+  fast Tokio task rather than an OS thread -
   `worker_threads` in config directly sizes the runtime's thread pool.
 - **Why it matters:** under a thread-per-connection model, every open
   connection holds an entire OS thread for as long as it's open, even

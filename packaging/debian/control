@@ -8,6 +8,6 @@ Standards-Version: 4.5.1
 Package: nwarp
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}
-Description: NWarp - a lightweight HTTP web server written in Rust
+Description: NWarp - a fast HTTP web server written in Rust
  NWarp is a memory-safe, modern alternative to Apache/Nginx built
  as a learning and production project by Nethum Welikada.

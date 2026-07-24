@@ -9,7 +9,7 @@ use std::time::Duration;
 use tokio::net::TcpListener;
 
 /// Runs the plain HTTP accept loop. Phase 4: each accepted connection
-/// becomes a lightweight Tokio task (`tokio::spawn`) instead of an OS
+/// becomes a fast Tokio task (`tokio::spawn`) instead of an OS
 /// thread - the async runtime multiplexes many tasks onto
 /// `worker_threads` real OS threads via an epoll-based reactor
 /// (Tokio's default on Linux), so the number of concurrent connections

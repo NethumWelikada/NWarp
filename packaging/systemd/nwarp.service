@@ -1,5 +1,5 @@
 [Unit]
-Description=NWarp - lightweight HTTP web server
+Description=NWarp - fast HTTP web server
 After=network.target
 
 [Service]
