@@ -1,0 +1,21 @@
+[Unit]
+Description=NWarp - lightweight HTTP web server
+After=network.target
+
+[Service]
+Type=simple
+User=nwarp
+Group=nwarp
+ExecStart=/usr/sbin/nwarpd --config /etc/nwarp/nwarp.conf
+WorkingDirectory=/etc/nwarp
+Restart=on-failure
+RestartSec=2
+
+# Basic hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/log/nwarp
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Welcome to NWarp</title>
+<style>
+  :root {
+    --nw-black: #1A1A1A;
+    --nw-bg: #F7F8F9;
+    --nw-blue: #0066FF;
+    --nw-orange: #FF7A1A;
+    --nw-white: #FFFFFF;
+    --nw-grey: #6B7280;
+    --nw-border: #E5E7EB;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: 'Geist', ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, Helvetica, Arial, sans-serif;
+    margin: 0;
+    background: var(--nw-bg);
+    color: var(--nw-black);
+    line-height: 1.6;
+  }
+  header {
+    padding: 72px 24px 56px;
+    text-align: center;
+    max-width: 720px;
+    margin: 0 auto;
+  }
+  .badge {
+    display: inline-block;
+    background: rgba(0, 102, 255, 0.08);
+    border: 1px solid rgba(0, 102, 255, 0.35);
+    color: var(--nw-blue);
+    font-weight: 700;
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 6px 16px;
+    border-radius: 999px;
+    margin-bottom: 28px;
+  }
+  header h1 {
+    margin: 0 0 20px;
+    font-size: 2.6rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.15;
+    color: var(--nw-black);
+  }
+  header h1 .accent { color: var(--nw-blue); }
+  header p.tagline {
+    margin: 0 auto;
+    color: var(--nw-grey);
+    font-size: 1.05rem;
+    max-width: 560px;
+  }
+  main {
+    max-width: 780px;
+    margin: 0 auto;
+    padding: 0 20px 60px;
+  }
+  .card {
+    background: var(--nw-white);
+    border: 1px solid var(--nw-border);
+    border-radius: 12px;
+    padding: 28px 30px;
+    margin-bottom: 18px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+  }
+  .card h2 {
+    margin-top: 0;
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: var(--nw-black);
+    border-left: 3px solid var(--nw-orange);
+    padding-left: 12px;
+  }
+  .card p {
+    color: var(--nw-grey);
+    font-size: 0.95rem;
+  }
+  code, .path {
+    background: rgba(0, 102, 255, 0.08);
+    padding: 2px 7px;
+    border-radius: 5px;
+    font-family: 'Geist Mono', ui-monospace, monospace;
+    font-size: 0.88em;
+    color: var(--nw-blue);
+  }
+  ul.checklist { list-style: none; padding: 0; margin: 0; }
+  ul.checklist li {
+    padding: 6px 0 6px 26px;
+    position: relative;
+    font-size: 0.95rem;
+    color: var(--nw-black);
+  }
+  ul.checklist li::before {
+    content: "\2713";
+    position: absolute;
+    left: 0;
+    color: var(--nw-orange);
+    font-weight: 700;
+  }
+  table { width: 100%; border-collapse: collapse; }
+  table td { padding: 8px 4px; border-bottom: 1px solid var(--nw-border); font-size: 0.9rem; color: var(--nw-black); }
+  table td:first-child { color: var(--nw-grey); width: 40%; }
+  table td code { color: var(--nw-blue); }
+  footer {
+    text-align: center;
+    padding: 30px 20px 56px;
+    color: var(--nw-grey);
+    font-size: 0.82rem;
+    border-top: 1px solid var(--nw-border);
+    max-width: 780px;
+    margin: 0 auto;
+  }
+  footer .uni {
+    margin-top: 8px;
+    font-weight: 600;
+    color: var(--nw-black);
+  }
+  footer .addr {
+    margin-top: 4px;
+    color: var(--nw-grey);
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="badge">Phase 1 &middot; Static File Server</div>
+  <h1>A web server built the way<br><span class="accent">you'll actually push it further.</span></h1>
+  <p class="tagline">NWarp is a modern HTTP server written in Rust - engineered to go beyond what Apache and Nginx offer, not just replicate it.</p>
+</header>
+
+<main>
+
+  <div class="card">
+    <h2>This is the default NWarp welcome page</h2>
+    <p>
+      If you can see this page, NWarp is successfully installed and
+      serving requests. This page lives at <span class="path">www/index.html</span>
+      (or <span class="path">/var/www/nwarp-default/index.html</span> if
+      installed system-wide) and stays here until you replace it with
+      your own site content.
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>What NWarp does today (Phase 1)</h2>
+    <ul class="checklist">
+      <li>Serves static files (HTML, CSS, JS, images) over HTTP/1.1</li>
+      <li>Thread-pool concurrency, sized by <code>worker_threads</code></li>
+      <li>Config-driven document root, host, and port</li>
+      <li>Access &amp; error logging to file</li>
+      <li>Directory-traversal protection on every request path</li>
+      <li>Custom 404 / 403 / 405 / 500 error pages</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2>Server configuration</h2>
+    <table>
+      <tr><td>Document root</td><td><code>document_root</code> in <code>nwarp.conf</code></td></tr>
+      <tr><td>Config file</td><td><span class="path">/etc/nwarp/nwarp.conf</span> (system install) or <span class="path">./configs/nwarp.conf</span> (dev)</td></tr>
+      <tr><td>Logs</td><td><span class="path">/var/log/nwarp/</span> or <span class="path">./logs/</span></td></tr>
+      <tr><td>Service control</td><td><code>systemctl {start|stop|restart|status} nwarp</code></td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Roadmap: built to go beyond Apache and Nginx</h2>
+    <p>
+      Phase 1 is the foundation. Planned phases add TLS termination,
+      reverse proxy and load balancing, HTTP/2 and HTTP/3, and a WASM
+      module system for request handlers - a capability neither Apache
+      nor Nginx offer natively. See <code>docs/ARCHITECTURE.md</code>
+      for the complete roadmap.
+    </p>
+  </div>
+
+</main>
+
+<footer>
+  <div>NWarp &middot; open-source web server project</div>
+  <div class="uni">Developed by Nethum Welikada &middot; Master of Engineering in Internetworking</div>
+  <div class="addr">Dalhousie University &middot; Halifax, Nova Scotia, Canada</div>
+</footer>
+
+</body>
+</html>
