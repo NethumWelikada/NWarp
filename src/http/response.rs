@@ -93,7 +93,7 @@ fn page(code: u16, text: &str, server_name: &str) -> String {
          <h1 style=\"font-size:2.2rem;\">{code} <span style=\"color:#0066FF;\">{text}</span></h1>\n\
          <hr style=\"border-color:#FF7A1A;width:120px;border-width:2px 0 0;\">\n\
          <p style=\"color:#6B7280;\">{server_name}</p>\n\
-         <p style=\"color:#9CA3AF;font-size:0.85em;\">Nethum Welikada &middot; Master of Engineering in Internetworking<br>Dalhousie University &middot; Halifax, Nova Scotia, Canada</p>\n\
+         <p style=\"color:#9CA3AF;font-size:0.85em;\"><a href=\"https://github.com/NethumWelikada\" style=\"color:#9CA3AF;\">Nethum Welikada</a> &middot; Master of Engineering in Internetworking<br>Dalhousie University &middot; Halifax, Nova Scotia, Canada</p>\n\
          </body>\n</html>\n"
     )
 }

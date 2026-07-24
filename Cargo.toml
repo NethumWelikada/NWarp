@@ -5,7 +5,7 @@ edition = "2021"
 authors = ["Nethum Welikada"]
 description = "NWarp - a modern, high-performance HTTP web server written in Rust, built to go beyond Apache and Nginx"
 license = "MIT"
-repository = "https://github.com/YOUR-USERNAME/nwarp"
+repository = "https://github.com/NethumWelikada/NWarp"
 
 [[bin]]
 name = "nwarpd"
