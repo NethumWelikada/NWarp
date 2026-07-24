@@ -62,3 +62,4 @@ echo "Check status:    sudo systemctl status nwarp"
 echo "Config file:     /etc/nwarp/nwarp.conf"
 echo "Default site:    /var/www/nwarp-default"
 echo "Logs:            /var/log/nwarp/"
+

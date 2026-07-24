@@ -180,3 +180,4 @@ fn send_h2_response(
 pub fn from_nwarp_response(resp: &NwarpResponse) -> (u16, String, Vec<u8>) {
     (resp.status_code, resp.content_type.clone(), resp.body.clone())
 }
+

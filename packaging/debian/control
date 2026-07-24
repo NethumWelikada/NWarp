@@ -11,3 +11,4 @@ Depends: ${shlibs:Depends}, ${misc:Depends}
 Description: NWarp - a fast HTTP web server written in Rust
  NWarp is a memory-safe, modern alternative to Apache/Nginx built
  as a learning and production project by Nethum Welikada.
+

@@ -18,3 +18,4 @@ echo "  sudo systemctl status nwarp"
 echo "Config: /etc/nwarp/nwarp.conf"
 
 exit 0
+

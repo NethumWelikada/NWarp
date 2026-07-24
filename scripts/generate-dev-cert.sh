@@ -26,3 +26,4 @@ echo "  tls_enabled = true"
 echo "  tls_port = 9443"
 echo "  tls_cert = ./certs/dev-cert.pem"
 echo "  tls_key = ./certs/dev-key.pem"
+

@@ -79,3 +79,4 @@ fn percent_decode(input: &str) -> String {
     }
     String::from_utf8_lossy(&out).to_string()
 }
+

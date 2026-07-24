@@ -72,3 +72,4 @@ echo "== Done =="
 echo "Package: $(pwd)/${DEB_FILE}"
 echo "Install with: sudo dpkg -i ${DEB_FILE}"
 echo "Inspect with: dpkg-deb --info ${DEB_FILE} && dpkg-deb --contents ${DEB_FILE}"
+

@@ -146,3 +146,4 @@ pub fn invoke(route: &WasmRoute, method: &str, path: &str) -> Result<(u16, Vec<u
 
     Ok((status, body))
 }
+

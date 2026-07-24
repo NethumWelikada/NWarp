@@ -63,3 +63,4 @@
       (i64.extend_i32_u (local.get $total_len)))
   )
 )
+

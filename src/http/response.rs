@@ -97,3 +97,4 @@ fn page(code: u16, text: &str, server_name: &str) -> String {
          </body>\n</html>\n"
     )
 }
+

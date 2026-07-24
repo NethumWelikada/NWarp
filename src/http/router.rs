@@ -78,3 +78,4 @@ fn mime_for(path: &Path) -> &'static str {
         _ => "application/octet-stream",
     }
 }
+

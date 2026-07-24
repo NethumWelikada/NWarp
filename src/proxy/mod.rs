@@ -223,3 +223,4 @@ fn extract_status(response: &[u8]) -> u16 {
         .and_then(|code| code.parse::<u16>().ok())
         .unwrap_or(502)
 }
+
