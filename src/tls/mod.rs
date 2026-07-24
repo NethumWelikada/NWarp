@@ -2,6 +2,7 @@ use crate::config::Config;
 use crate::logging::Logger;
 use crate::proxy::ProxyTable;
 use crate::server::connection::handle_generic;
+use crate::wasm::WasmTable;
 use rustls::{Certificate, PrivateKey, ServerConfig};
 use rustls_pemfile::{certs, pkcs8_private_keys, rsa_private_keys};
 use std::fs::File;
@@ -75,7 +76,12 @@ pub fn build_tls_config(cfg: &Config) -> io::Result<Arc<ServerConfig>> {
 /// via tokio-rustls, then is handed to the same `handle_generic`
 /// request/response cycle used by plain HTTP - see
 /// server/connection.rs.
-pub async fn run(cfg: Arc<Config>, logger: Arc<Logger>, proxy_table: Arc<ProxyTable>) -> io::Result<()> {
+pub async fn run(
+    cfg: Arc<Config>,
+    logger: Arc<Logger>,
+    proxy_table: Arc<ProxyTable>,
+    wasm_table: Arc<WasmTable>,
+) -> io::Result<()> {
     let tls_config = build_tls_config(&cfg)?;
     let acceptor = TlsAcceptor::from(tls_config);
     let addr = format!("{}:{}", cfg.host, cfg.tls_port);
@@ -89,6 +95,7 @@ pub async fn run(cfg: Arc<Config>, logger: Arc<Logger>, proxy_table: Arc<ProxyTa
                 let cfg = Arc::clone(&cfg);
                 let logger = Arc::clone(&logger);
                 let proxy_table = Arc::clone(&proxy_table);
+                let wasm_table = Arc::clone(&wasm_table);
                 let acceptor = acceptor.clone();
 
                 tokio::spawn(async move {
@@ -108,9 +115,11 @@ pub async fn run(cfg: Arc<Config>, logger: Arc<Logger>, proxy_table: Arc<ProxyTa
                                 == Some(b"h2".as_ref());
 
                             if negotiated_h2 {
-                                crate::http2::serve(tls_stream, cfg, logger, proxy_table, peer).await;
+                                crate::http2::serve(tls_stream, cfg, logger, proxy_table, wasm_table, peer)
+                                    .await;
                             } else {
-                                handle_generic(&mut tls_stream, peer, cfg, logger, proxy_table).await;
+                                handle_generic(&mut tls_stream, peer, cfg, logger, proxy_table, wasm_table)
+                                    .await;
                             }
                         }
                         Err(e) => {

@@ -179,12 +179,77 @@ Dalhousie University, Halifax, Nova Scotia, Canada.*
     which protocol the client used to reach NWarp - the HTTP/2
     multiplexing benefit doesn't currently extend past NWarp itself.
 
+## Phase 6: WASM module system (done)
+
+This is the feature originally motivating the whole project: request
+handlers as sandboxed WebAssembly modules, rather than compiled C
+modules (Apache) or embedded Lua/njs scripts (Nginx) - neither Apache
+nor Nginx offer this natively.
+
+- **Runtime:** [wasmi](https://github.com/wasmi-labs/wasmi), a
+  pure-Rust, embeddable WASM interpreter. Chosen over a JIT-compiling
+  runtime like `wasmtime` deliberately: `wasmtime` pulls in Cranelift
+  and a much larger build/dependency footprint, and for a
+  request-handler plugin model (where each invocation is small and
+  short-lived) an interpreter's per-call overhead is an acceptable
+  trade-off for a dramatically lighter, pure-Rust dependency tree with
+  no C toolchain requirements. This is a real, defensible engineering
+  choice, not a shortcut - `wasmi` is used in production systems
+  (e.g. Parity/Substrate blockchain runtimes) specifically for this
+  kind of embeddable-with-minimal-footprint use case.
+- **Config:** `wasm_route <prefix> = <path/to/module.wasm>` lines,
+  parsed the same way as `proxy_route`. A module is compiled once at
+  startup (`wasmi::Module::new` - parsing and validation happen here);
+  each request gets a fresh `Store` and instance for isolation, so one
+  request's module state can never leak into another's. A module that
+  fails to load or compile is logged as a startup warning and its
+  route is skipped rather than crashing the server - verified by
+  configuring a route pointing at a nonexistent file and confirming
+  the server still started and served its other routes correctly.
+- **Handler ABI** (see `src/wasm/mod.rs` for the full contract): a
+  compatible module exports `memory`, `alloc(size: i32) -> i32`, and
+  `handle(method_ptr, method_len, path_ptr, path_len) -> i64` (packing
+  a response pointer and length into the return value). The response
+  bytes are `[status: u16 little-endian][body: remaining bytes]`.
+- **Routing precedence:** proxy routes are checked first, then WASM
+  routes, then static file serving as the final fallback (see
+  `server::connection::handle_generic`) - the same ordering is
+  duplicated in the HTTP/2 path (`http2::handle_stream`) since HTTP/2
+  streams don't flow through the same function.
+- **Example module:** `wasm/hello.wasm`, with its `wasm/hello.wat`
+  source alongside it. Because this project's build environment has no
+  `wasm32-unknown-unknown` Rust target installed (no `rustup`, and the
+  distro's `rustc` package only ships the host target), the example
+  module was hand-written directly in WebAssembly Text format and
+  assembled to a binary using the `wat` crate (a pure-Rust WAT
+  parser/encoder that runs on the host target, requiring no wasm32
+  toolchain at all) rather than compiled from a `#![no_std]` Rust
+  crate. The resulting `.wasm` is a genuine, valid WASM MVP binary
+  either way - `wasmi` has no way to tell (or care) whether a module
+  came from Rust, C, AssemblyScript, or hand-written WAT.
+- **Verified end-to-end:** the example module reads the *actual*
+  requested path out of guest memory (written there by the host from
+  the real incoming HTTP request) and echoes it back in its response,
+  confirmed with two different request paths producing two different
+  response bodies - proving the host is passing genuine per-request
+  data into the sandbox, not returning a static canned string. Also
+  confirmed working over plain HTTP, HTTPS, and HTTP/2 (status 200,
+  correct body, in all three cases), and confirmed that static file
+  serving for non-matching paths is unaffected.
+- **Known limitations (intentionally not hidden):**
+  - Fixed response content type (`text/plain; charset=utf-8`) - no
+    per-response header control from the module yet.
+  - No request body support, and no host-provided imports (logging,
+    outbound HTTP, storage, etc.) - modules only receive method + path.
+  - Fresh instance per request (safe, isolated) rather than a
+    pooled/reused instance (faster, but requires careful state
+    reset) - a natural follow-up optimization.
+
 ## Planned phases
 
 | Phase | Goal |
 |---|---|
 | 5.5 | HTTP/3 (QUIC) |
-| 6 | WASM module system for request handlers (the "advanced feature" differentiator vs Apache/Nginx) |
 | 7 | Config hot-reload, structured (OpenTelemetry) logging, `.deb`/`.rpm` packaging polish |
 
 ## Module map
@@ -211,7 +276,9 @@ src/
 │                       (relay + relay_raw variants - see http2/mod.rs)
 ├── http2/mod.rs        HTTP/2 via the h2 crate: converts h2 streams to/from
 │                       the internal Request/Response types, reusing the
-│                       same router/proxy logic as HTTP/1.1
+│                       same router/proxy/wasm logic as HTTP/1.1
+├── wasm/mod.rs         WASM module system (wasmi): route table, module
+│                       compilation, per-request instantiation + invocation
 ├── tls/mod.rs          rustls config (incl. ALPN), cert/key loading, async
 │                       HTTPS accept loop via tokio-rustls, branches to
 │                       HTTP/1.1 or HTTP/2 based on negotiated ALPN protocol

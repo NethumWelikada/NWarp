@@ -5,6 +5,7 @@ mod logging;
 mod proxy;
 mod server;
 mod tls;
+mod wasm;
 
 use config::Config;
 use std::env;

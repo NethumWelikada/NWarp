@@ -2,6 +2,7 @@ use crate::config::Config;
 use crate::logging::Logger;
 use crate::proxy::ProxyTable;
 use crate::server::connection;
+use crate::wasm::WasmTable;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 
@@ -14,6 +15,7 @@ use tokio::net::TcpListener;
 pub async fn run(cfg: Config) -> std::io::Result<()> {
     let logger = Arc::new(Logger::new(&cfg.access_log, &cfg.error_log));
     let proxy_table = Arc::new(ProxyTable::from_config(&cfg));
+    let wasm_table = Arc::new(WasmTable::from_config(&cfg));
     let addr = format!("{}:{}", cfg.host, cfg.port);
     let listener = TcpListener::bind(&addr).await?;
     let cfg = Arc::new(cfg);
@@ -33,6 +35,12 @@ pub async fn run(cfg: Config) -> std::io::Result<()> {
         );
     }
 
+    if !cfg.wasm_routes.is_empty() {
+        for (prefix, path) in &cfg.wasm_routes {
+            println!("WASM handler {} -> {}", prefix, path);
+        }
+    }
+
     if proxy_table.has_routes() {
         crate::proxy::spawn_health_checker(
             Arc::clone(&proxy_table),
@@ -48,8 +56,11 @@ pub async fn run(cfg: Config) -> std::io::Result<()> {
         let tls_cfg = Arc::clone(&cfg);
         let tls_logger = Arc::clone(&logger);
         let tls_proxy_table = Arc::clone(&proxy_table);
+        let tls_wasm_table = Arc::clone(&wasm_table);
         tokio::spawn(async move {
-            if let Err(e) = crate::tls::run(tls_cfg, Arc::clone(&tls_logger), tls_proxy_table).await
+            if let Err(e) =
+                crate::tls::run(tls_cfg, Arc::clone(&tls_logger), tls_proxy_table, tls_wasm_table)
+                    .await
             {
                 tls_logger.error(&format!("TLS listener failed to start: {}", e));
             }
@@ -62,8 +73,9 @@ pub async fn run(cfg: Config) -> std::io::Result<()> {
                 let cfg = Arc::clone(&cfg);
                 let logger = Arc::clone(&logger);
                 let proxy_table = Arc::clone(&proxy_table);
+                let wasm_table = Arc::clone(&wasm_table);
                 tokio::spawn(async move {
-                    connection::handle(stream, cfg, logger, proxy_table).await;
+                    connection::handle(stream, cfg, logger, proxy_table, wasm_table).await;
                 });
             }
             Err(e) => {

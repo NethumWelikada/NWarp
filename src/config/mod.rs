@@ -22,6 +22,9 @@ pub struct Config {
     /// lines. Empty by default - proxying is fully opt-in and does not
     /// affect static file serving unless configured.
     pub proxy_routes: Vec<(String, Vec<String>)>,
+    /// (path_prefix, wasm_file_path) pairs, parsed from `wasm_route`
+    /// lines. Phase 6.
+    pub wasm_routes: Vec<(String, String)>,
     /// How often (seconds) to actively health-check each configured
     /// upstream. Phase 3.5.
     pub health_check_interval_secs: u64,
@@ -45,6 +48,7 @@ impl Default for Config {
             tls_cert: "./certs/dev-cert.pem".to_string(),
             tls_key: "./certs/dev-key.pem".to_string(),
             proxy_routes: Vec::new(),
+            wasm_routes: Vec::new(),
             health_check_interval_secs: 5,
             health_check_timeout_secs: 2,
         }
@@ -142,6 +146,13 @@ impl Config {
                 if !upstreams.is_empty() {
                     cfg.proxy_routes.push((prefix.trim().to_string(), upstreams));
                 }
+            }
+        }
+
+        // wasm_route <prefix> = <path/to/module.wasm>
+        for (k, v) in &map {
+            if let Some(prefix) = k.strip_prefix("wasm_route ") {
+                cfg.wasm_routes.push((prefix.trim().to_string(), v.trim().to_string()));
             }
         }
 

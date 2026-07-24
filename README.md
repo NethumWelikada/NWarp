@@ -5,14 +5,14 @@ A modern, high-performance HTTP web server written in Rust, built by
 Dalhousie University, Halifax, Nova Scotia, Canada - engineered to go
 beyond what Apache and Nginx offer, not just replicate it.
 
-> Phase 1-5 (this release): static file serving, an async event loop
-> (Tokio, epoll-based on Linux), config file, access/error logging,
-> directory-traversal protection, TLS/HTTPS via rustls (TLSv1.3),
-> reverse proxy with round-robin load balancing, active upstream
-> health checks, and HTTP/2 (negotiated via ALPN). See
-> [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full roadmap:
-> HTTP/3 (QUIC), and a WASM module system that neither Apache nor
-> Nginx offer natively.
+> Phase 1-6 (this release): static file serving, an async event loop
+> (Tokio, epoll-based on Linux), TLS/HTTPS via rustls (TLSv1.3),
+> HTTP/2 (negotiated via ALPN), reverse proxy with round-robin load
+> balancing, active upstream health checks, and a sandboxed WASM
+> module system for request handlers - the capability Apache and
+> Nginx don't offer natively. See
+> [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the remaining
+> roadmap: HTTP/3 (QUIC) and ops polish.
 
 ## Requirements
 
@@ -156,6 +156,67 @@ connection attempt to a known-dead host.
 - Request bodies (POST/PUT payloads) aren't forwarded yet, consistent
   with static-file-serving-only request parsing in Phase 1.
 
+## WASM module system (Phase 6)
+
+This is NWarp's core differentiator against Apache and Nginx: request
+handlers can be sandboxed WebAssembly modules, written in any language
+that compiles to WASM, instead of compiled C modules (Apache) or
+embedded Lua/njs scripts (Nginx). NWarp runs modules with
+[wasmi](https://github.com/wasmi-labs/wasmi), a pure-Rust, embeddable
+WASM interpreter - no external runtime, no shelling out, no native
+code execution outside the sandbox.
+
+**Configure a route:**
+
+```ini
+wasm_route /hello = ./wasm/hello.wasm
+```
+
+Any request under `/hello` is handed to that module's `handle` export
+instead of being served as a static file. A working example ships at
+`wasm/hello.wasm` (with its `wasm/hello.wat` source alongside it for
+transparency) - it reads the real requested path out of the incoming
+request and echoes it back, proving the host is passing genuine
+per-request data into the sandbox rather than returning a canned
+string.
+
+```bash
+curl http://localhost:9090/hello/world
+# Hello from a sandboxed WASM module! You requested: /hello/world
+```
+
+**The handler ABI** (documented in full in `src/wasm/mod.rs` and
+`docs/ARCHITECTURE.md`): a compatible module exports `memory`,
+`alloc(size) -> ptr`, and
+`handle(method_ptr, method_len, path_ptr, path_len) -> i64` (packing a
+response pointer and length). The response's first 2 bytes are the
+HTTP status code (u16 little-endian); everything after is the body.
+
+**Writing your own module:** any toolchain that emits a standard WASM
+binary works, as long as it implements the ABI above. This repo's
+`wasm/hello.wat` is written directly in WebAssembly Text format and
+assembled with the `wat` crate specifically because this project's
+own build environment didn't have a `wasm32-unknown-unknown` Rust
+target available - if yours does, compiling a small `#![no_std]` Rust
+crate to `wasm32-unknown-unknown` implementing the same three exports
+works just as well and is generally more ergonomic than hand-writing
+WAT.
+
+**Current limitations (honest, so you don't hit surprises):**
+- Fixed response content type (`text/plain; charset=utf-8`) for
+  now - modules can't yet set arbitrary response headers.
+- No request body support, and no host-provided imports (logging,
+  outbound HTTP, key-value storage, etc.) - modules currently only
+  receive the method and path, nothing else.
+- A fresh WASM instance (fresh linear memory, fresh globals) is
+  created per request for isolation - safe by default, but each
+  request pays a small instantiation cost. Pooling/reusing instances
+  across requests is a natural follow-up, not implemented here.
+- A module that fails to load or compile is logged as a startup
+  warning and its route is simply skipped (falls through to normal
+  static file serving / 404) rather than crashing the server -
+  verified by configuring a route pointing at a nonexistent file.
+
 ## Installing system-wide (like `apache2`/`nginx`)
 
 This sets NWarp up the same way Apache/Nginx are installed: a dedicated
@@ -216,6 +277,8 @@ nwarp/
 ├── docs/ARCHITECTURE.md   design notes + roadmap
 ├── src/proxy/mod.rs       reverse proxy + round-robin load balancing
 ├── src/http2/mod.rs       HTTP/2 (h2 crate bridge to internal Request/Response)
+├── src/wasm/mod.rs        WASM module system (wasmi) - the Apache/Nginx differentiator
+├── wasm/                  WASM handler modules go here (hello.wasm example + .wat source)
 ├── install.sh             system-wide installer (Tier 1 packaging)
 └── LICENSE                MIT (with attribution)
 ```
@@ -223,8 +286,7 @@ nwarp/
 ## Roadmap
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the phased plan -
-HTTP/3 (QUIC), and a WASM-based module system as the long-term
-differentiator against Apache and Nginx.
+HTTP/3 (QUIC), config hot-reload, and OpenTelemetry-native observability.
 
 ## License
 

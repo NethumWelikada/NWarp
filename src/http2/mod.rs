@@ -4,6 +4,7 @@ use crate::http::response::Response as NwarpResponse;
 use crate::http::router;
 use crate::logging::Logger;
 use crate::proxy::ProxyTable;
+use crate::wasm::WasmTable;
 use bytes::Bytes;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -21,6 +22,7 @@ pub async fn serve<S>(
     cfg: Arc<Config>,
     logger: Arc<Logger>,
     proxy_table: Arc<ProxyTable>,
+    wasm_table: Arc<WasmTable>,
     peer: String,
 ) where
     S: AsyncRead + AsyncWrite + Unpin,
@@ -45,10 +47,11 @@ pub async fn serve<S>(
         let cfg = Arc::clone(&cfg);
         let logger = Arc::clone(&logger);
         let proxy_table = Arc::clone(&proxy_table);
+        let wasm_table = Arc::clone(&wasm_table);
         let peer = peer.clone();
 
         tokio::spawn(async move {
-            handle_stream(request, respond, cfg, logger, proxy_table, peer).await;
+            handle_stream(request, respond, cfg, logger, proxy_table, wasm_table, peer).await;
         });
     }
 }
@@ -62,6 +65,7 @@ async fn handle_stream(
     cfg: Arc<Config>,
     logger: Arc<Logger>,
     proxy_table: Arc<ProxyTable>,
+    wasm_table: Arc<WasmTable>,
     peer: String,
 ) {
     let request = to_nwarp_request(&h2_request);
@@ -89,6 +93,22 @@ async fn handle_stream(
                 logger.access(&request.method, &request.path, 502, &peer);
                 let body = format!("<h1>502 Bad Gateway</h1><p>{}</p>", cfg.server_name);
                 send_h2_response(&mut respond, 502, "text/html; charset=utf-8", body.as_bytes(), &cfg);
+            }
+        }
+        return;
+    }
+
+    if let Some(route) = wasm_table.match_route(&request.path) {
+        match crate::wasm::invoke(route, &request.method, &request.path) {
+            Ok((status, body)) => {
+                logger.access(&request.method, &request.path, status, &peer);
+                send_h2_response(&mut respond, status, "text/plain; charset=utf-8", &body, &cfg);
+            }
+            Err(e) => {
+                logger.error(&format!("WASM handler error for {} {} -> {}", request.method, request.path, e));
+                logger.access(&request.method, &request.path, 500, &peer);
+                let body = format!("<h1>500 Internal Server Error</h1><p>{}</p>", cfg.server_name);
+                send_h2_response(&mut respond, 500, "text/html; charset=utf-8", body.as_bytes(), &cfg);
             }
         }
         return;
