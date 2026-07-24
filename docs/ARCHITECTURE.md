@@ -59,20 +59,45 @@ Dalhousie University, Halifax, Nova Scotia, Canada.*
   end-to-end against two real upstream HTTP servers with alternating
   A/B/A/B/A/B round-robin.
 - **Known limitations (intentionally not hidden):**
-  - No active health checking - a downed upstream still receives its
-    round-robin turn and returns `502 Bad Gateway` for that request,
-    rather than being automatically skipped. Passive/active health
-    checks are a natural Phase 3 follow-up, not yet built.
   - Upstreams must be plain HTTP; proxying to a TLS-terminated
     upstream is a later phase.
   - Request bodies are not forwarded yet (consistent with Phase 1's
     header-only request parsing).
 
+## Phase 3.5: Upstream health checks (done)
+
+- **Model:** each upstream target carries an `AtomicBool` healthy flag,
+  read (lock-free) on every request and written by a single background
+  thread (`proxy::spawn_health_checker`).
+- **Check:** every `health_check_interval_secs`, attempt a TCP connect
+  (bounded by `health_check_timeout_secs`) to each configured
+  upstream; store the result. This is a connectivity check, not an
+  application-level check (see limitations below).
+- **Selection:** `ProxyRoute::pick_upstream` now does round-robin
+  *among currently healthy targets only* - it tries up to one full lap
+  around the target list looking for a healthy one, and returns `None`
+  if every target in the route is unhealthy.
+- **Client-facing behavior:** `None` from `pick_upstream` maps to an
+  immediate `503 Service Unavailable` (fail fast, no wasted connection
+  attempt to a dead host); an upstream that's marked healthy but fails
+  mid-request still returns `502 Bad Gateway` as before.
+- **Verified end-to-end:** killed one of two upstreams mid-test - after
+  one health-check cycle, all subsequent requests correctly routed
+  only to the surviving upstream; killing both returned `503` as
+  designed (not `502`).
+- **Known limitations (intentionally not hidden):**
+  - TCP-level reachability only, not an HTTP-level check (e.g. hitting
+    a `/health` endpoint and checking for `200`). A reachable-but-broken
+    application would still be marked healthy.
+  - Cold start assumes every upstream is healthy until the first check
+    completes, so the very first `health_check_interval_secs` window
+    could route to a dead upstream once before the first check catches
+    it.
+
 ## Planned phases
 
 | Phase | Goal |
 |---|---|
-| 3.5 | Upstream health checks (active/passive) + automatic failover |
 | 4 | Move from thread-per-connection to an epoll/io_uring event loop |
 | 5 | HTTP/2, then HTTP/3 (QUIC) |
 | 6 | WASM module system for request handlers (the "advanced feature" differentiator vs Apache/Nginx) |
@@ -97,7 +122,8 @@ src/
 │   └── connection.rs     shared request/response cycle (handle_generic):
 │                         checks proxy routes first, falls through to
 │                         static file serving - used by both HTTP and HTTPS
-├── proxy/mod.rs        ProxyTable, round-robin upstream selection, relay logic
+├── proxy/mod.rs        ProxyTable, round-robin + health-tracked upstream
+│                       selection, background health checker, relay logic
 ├── tls/mod.rs          rustls config, cert/key loading, HTTPS accept loop
 └── logging/mod.rs      access/error log writer
 ```

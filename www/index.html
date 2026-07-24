@@ -130,7 +130,7 @@
 <body>
 
 <header>
-  <div class="badge">Phase 1-3 &middot; Static Files, TLS, Reverse Proxy</div>
+  <div class="badge">Phase 1-3.5 &middot; Static Files, TLS, Proxy + Health Checks</div>
   <h1>A web server built the way<br><span class="accent">you'll actually push it further.</span></h1>
   <p class="tagline">NWarp is a modern HTTP server written in Rust - engineered to go beyond what Apache and Nginx offer, not just replicate it.</p>
 </header>
@@ -149,16 +149,17 @@
   </div>
 
   <div class="card">
-    <h2>What NWarp does today (Phase 1-3)</h2>
+    <h2>What NWarp does today (Phase 1-3.5)</h2>
     <ul class="checklist">
       <li>Serves static files (HTML, CSS, JS, images) over HTTP/1.1</li>
       <li>HTTPS via TLSv1.3 (rustls), running alongside plain HTTP</li>
       <li>Reverse proxy with round-robin load balancing (opt-in via <code>proxy_route</code>)</li>
+      <li>Active upstream health checks - dead upstreams are automatically skipped</li>
       <li>Thread-pool concurrency, sized by <code>worker_threads</code></li>
       <li>Config-driven document root, host, and port</li>
       <li>Access &amp; error logging to file</li>
       <li>Directory-traversal protection on every request path</li>
-      <li>Custom 404 / 403 / 405 / 500 / 502 error pages</li>
+      <li>Custom 404 / 403 / 405 / 500 / 502 / 503 error pages</li>
     </ul>
   </div>
 
@@ -175,8 +176,8 @@
   <div class="card">
     <h2>Roadmap: built to go beyond Apache and Nginx</h2>
     <p>
-      Phase 1-3 are done: static files, TLS/HTTPS, and reverse proxy
-      with load balancing. Planned phases add
+      Phase 1-3.5 are done: static files, TLS/HTTPS, reverse proxy with
+      load balancing, and active upstream health checks. Planned phases add
       reverse proxy and load balancing, HTTP/2 and HTTP/3, and a WASM
       module system for request handlers - a capability neither Apache
       nor Nginx offer natively. See <code>docs/ARCHITECTURE.md</code>

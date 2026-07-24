@@ -47,6 +47,12 @@ impl Response {
         r
     }
 
+    pub fn service_unavailable(server_name: &str) -> Self {
+        let mut r = Response::new(503, "Service Unavailable", server_name);
+        r.set_html_body(&page(503, "Service Unavailable", server_name));
+        r
+    }
+
     pub fn set_html_body(&mut self, html: &str) {
         self.content_type = "text/html; charset=utf-8".to_string();
         self.body = html.as_bytes().to_vec();

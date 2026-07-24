@@ -5,12 +5,13 @@ A modern, high-performance HTTP web server written in Rust, built by
 Dalhousie University, Halifax, Nova Scotia, Canada - engineered to go
 beyond what Apache and Nginx offer, not just replicate it.
 
-> Phase 1-3 (this release): static file serving, thread-pool concurrency,
+> Phase 1-3.5 (this release): static file serving, thread-pool concurrency,
 > config file, access/error logging, directory-traversal protection,
-> TLS/HTTPS via rustls (TLSv1.3), and reverse proxy with round-robin
-> load balancing. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for
-> the full roadmap: HTTP/2 & HTTP/3, and a WASM module system that
-> neither Apache nor Nginx offer natively.
+> TLS/HTTPS via rustls (TLSv1.3), reverse proxy with round-robin load
+> balancing, and active upstream health checks. See
+> [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full roadmap:
+> an epoll/io_uring event loop, HTTP/2 & HTTP/3, and a WASM module
+> system that neither Apache nor Nginx offer natively.
 
 ## Requirements
 
@@ -89,32 +90,40 @@ browser will warn about the self-signed cert during local testing -
 that's expected; proceed past it, or use a real CA cert to avoid the
 warning entirely).
 
-## Reverse proxy + load balancing (Phase 3)
+## Reverse proxy + load balancing (Phase 3, health checks in 3.5)
 
 NWarp can proxy requests matching a path prefix to one or more
-upstream servers, load-balanced round-robin. This is opt-in - if
-`configs/nwarp.conf` has no `proxy_route` lines, NWarp behaves exactly
-like Phase 1/2 (static files only).
+upstream servers, load-balanced round-robin, with active health
+checks automatically routing around dead upstreams. This is opt-in -
+if `configs/nwarp.conf` has no `proxy_route` lines, NWarp behaves
+exactly like Phase 1/2 (static files only).
 
 **Configure one or more routes:**
 
 ```ini
 proxy_route /api = http://127.0.0.1:5001,http://127.0.0.1:5002
 proxy_route /app = http://127.0.0.1:6000
+
+health_check_interval = 5
+health_check_timeout = 2
 ```
 
-Any request whose path starts with `/api` is forwarded to whichever of
-the two upstreams is next in round-robin rotation. Requests to `/app`
-go to the single upstream configured there. Everything else continues
-to be served as static files from `document_root`, unchanged.
+Any request whose path starts with `/api` is forwarded to whichever
+*healthy* upstream is next in round-robin rotation. Every
+`health_check_interval` seconds, NWarp attempts a TCP connection
+(bounded by `health_check_timeout`) to each configured upstream and
+marks it healthy or unhealthy accordingly - unhealthy upstreams are
+skipped until a later check finds them reachable again. If every
+upstream for a route is currently unhealthy, NWarp returns
+`503 Service Unavailable` immediately rather than hanging on a
+connection attempt to a known-dead host.
 
 **Current limitations (honest, so you don't hit surprises):**
-- No active health checking yet - if an upstream is down, requests
-  routed to it during its round-robin turn will get a `502 Bad
-  Gateway`, rather than automatically skipping to a healthy upstream.
-  Automatic failover is a natural follow-up but isn't built yet.
-- Upstreams must be plain HTTP (not HTTPS) for now - proxying to a TLS
-  upstream is a later phase.
+- Health checks are TCP-connectivity checks only (is the port
+  reachable), not application-level checks (e.g. does `/health` return
+  200). That's a reasonable follow-up but isn't built yet.
+- Upstreams must be plain HTTP for now - proxying to a TLS upstream is
+  a later phase.
 - Request bodies (POST/PUT payloads) aren't forwarded yet, consistent
   with static-file-serving-only request parsing in Phase 1.
 
@@ -184,8 +193,8 @@ nwarp/
 ## Roadmap
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the phased plan -
-HTTP/2 & HTTP/3, and a WASM-based module system as the long-term
-differentiator against Apache and Nginx.
+an epoll/io_uring event loop, HTTP/2 & HTTP/3, and a WASM-based module
+system as the long-term differentiator against Apache and Nginx.
 
 ## License
 

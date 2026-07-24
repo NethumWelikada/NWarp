@@ -22,6 +22,18 @@ pub fn run(cfg: Config) -> std::io::Result<()> {
         for (prefix, upstreams) in &cfg.proxy_routes {
             println!("Proxying {} -> {}", prefix, upstreams.join(", "));
         }
+        println!(
+            "Health checks: every {}s, {}s timeout",
+            cfg.health_check_interval_secs, cfg.health_check_timeout_secs
+        );
+    }
+
+    if proxy_table.has_routes() {
+        crate::proxy::spawn_health_checker(
+            Arc::clone(&proxy_table),
+            std::time::Duration::from_secs(cfg.health_check_interval_secs),
+            std::time::Duration::from_secs(cfg.health_check_timeout_secs),
+        );
     }
 
     // Phase 2: if TLS is enabled, run the HTTPS accept loop on its own

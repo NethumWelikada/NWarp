@@ -55,6 +55,15 @@ pub fn handle_generic<S: Read + Write>(
             Ok(status) => {
                 logger.access(&request.method, &request.path, status, &peer);
             }
+            Err(e) if e.kind() == std::io::ErrorKind::NotConnected => {
+                logger.error(&format!(
+                    "no healthy upstream for {} {}",
+                    request.method, request.path
+                ));
+                let resp = Response::service_unavailable(&cfg.server_name);
+                let _ = resp.send(stream);
+                logger.access(&request.method, &request.path, 503, &peer);
+            }
             Err(e) => {
                 logger.error(&format!(
                     "proxy upstream error for {} {} -> {}",

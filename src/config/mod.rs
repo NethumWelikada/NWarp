@@ -22,6 +22,11 @@ pub struct Config {
     /// lines. Empty by default - proxying is fully opt-in and does not
     /// affect static file serving unless configured.
     pub proxy_routes: Vec<(String, Vec<String>)>,
+    /// How often (seconds) to actively health-check each configured
+    /// upstream. Phase 3.5.
+    pub health_check_interval_secs: u64,
+    /// Per-check connect timeout (seconds).
+    pub health_check_timeout_secs: u64,
 }
 
 impl Default for Config {
@@ -40,6 +45,8 @@ impl Default for Config {
             tls_cert: "./certs/dev-cert.pem".to_string(),
             tls_key: "./certs/dev-key.pem".to_string(),
             proxy_routes: Vec::new(),
+            health_check_interval_secs: 5,
+            health_check_timeout_secs: 2,
         }
     }
 }
@@ -109,6 +116,17 @@ impl Config {
         }
         if let Some(v) = map.get("tls_key") {
             cfg.tls_key = v.clone();
+        }
+
+        if let Some(v) = map.get("health_check_interval") {
+            if let Ok(n) = v.parse::<u64>() {
+                cfg.health_check_interval_secs = n.max(1);
+            }
+        }
+        if let Some(v) = map.get("health_check_timeout") {
+            if let Ok(n) = v.parse::<u64>() {
+                cfg.health_check_timeout_secs = n.max(1);
+            }
         }
 
         // proxy_route <prefix> = <upstream1>,<upstream2>,...
