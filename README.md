@@ -1,6 +1,6 @@
 # NWarp
 
-A modern HTTP web server written in Rust — engineered to go beyond
+A modern HTTP web server written in Rust - engineered to go beyond
 what Apache and Nginx offer, not just replicate them: an async
 epoll-based event loop, TLS 1.3, HTTP/2, HTTP/3 (QUIC), a reverse
 proxy with health-checked load balancing, config hot-reload, and a
@@ -14,7 +14,7 @@ Nova Scotia, Canada.
 
 ## Install
 
-### Option A — `.deb` package (Debian/Ubuntu, recommended)
+### Option A - `.deb` package (Debian/Ubuntu, recommended)
 
 ```bash
 git clone https://github.com/NethumWelikada/NWarp.git
@@ -31,7 +31,7 @@ sudo systemctl status nwarp
 curl http://localhost:9090/
 ```
 
-### Option B — build and run manually (any Linux distro)
+### Option B - build and run manually (any Linux distro)
 
 Requires the Rust toolchain (`rustc` + `cargo`):
 
@@ -49,9 +49,9 @@ cargo build --release
 ./target/release/nwarpd --config ./configs/nwarp.conf
 ```
 
-Visit **http://localhost:9090** — you should see the NWarp welcome page.
+Visit **http://localhost:9090** - you should see the NWarp welcome page.
 
-### Option C — install script (any systemd Linux, no `.deb`)
+### Option C - install script (any systemd Linux, no `.deb`)
 
 ```bash
 git clone https://github.com/NethumWelikada/NWarp.git
@@ -69,21 +69,21 @@ and a systemd service.
 
 ## Features
 
-- **Async event loop** (Tokio, epoll on Linux) — handles many
+- **Async event loop** (Tokio, epoll on Linux) - handles many
   thousands of concurrent connections without a thread per connection
-- **HTTP/1.1, HTTP/2, and HTTP/3** — HTTP/2 and HTTP/3 negotiate
+- **HTTP/1.1, HTTP/2, and HTTP/3** - HTTP/2 and HTTP/3 negotiate
   automatically over TLS, no extra config needed
 - **TLS 1.3** via [rustls](https://github.com/rustls/rustls), a
   memory-safe Rust TLS implementation
 - **Reverse proxy** with round-robin load balancing and active
-  upstream health checks — dead upstreams are automatically skipped
-- **Sandboxed WebAssembly request handlers** — write handlers in any
+  upstream health checks - dead upstreams are automatically skipped
+- **Sandboxed WebAssembly request handlers** - write handlers in any
   language that compiles to WASM, run in a real sandbox
   ([wasmi](https://github.com/wasmi-labs/wasmi)) instead of compiled C
   modules (Apache) or embedded scripting (Nginx)
-- **Config hot-reload** — edit `proxy_route`/`wasm_route` entries and
+- **Config hot-reload** - edit `proxy_route`/`wasm_route` entries and
   they apply within seconds, no restart
-- **Structured JSON logging** — line-delimited JSON access/error logs,
+- **Structured JSON logging** - line-delimited JSON access/error logs,
   directly ingestible by an OpenTelemetry Collector, Vector, or Fluent
   Bit
 - **Directory-traversal protection**, custom error pages, and a
@@ -125,7 +125,7 @@ health_check_timeout = 2
 ```
 
 `proxy_route` and `wasm_route` changes hot-reload automatically within
-a few seconds — no restart needed. Everything else (`host`, `port`,
+a few seconds - no restart needed. Everything else (`host`, `port`,
 `tls_*`, `worker_threads`) requires
 `sudo systemctl restart nwarp` to take effect.
 
@@ -137,7 +137,7 @@ file.
 
 ## HTTPS, HTTP/2, and HTTP/3
 
-Generate a certificate — a self-signed one for local testing:
+Generate a certificate - a self-signed one for local testing:
 
 ```bash
 ./scripts/generate-dev-cert.sh
@@ -164,7 +164,7 @@ curl -k --http2 -v https://localhost:9443/ 2>&1 | grep "using HTTP"
 ```
 
 HTTP/3 (QUIC) runs on the same port number, over UDP, automatically
-whenever TLS is enabled — no separate flag. Note: HTTP/3 isn't
+whenever TLS is enabled - no separate flag. Note: HTTP/3 isn't
 discoverable via `Alt-Svc` yet, so a client needs to be told to use it
 directly (most `curl` builds don't have QUIC support compiled in;
 browsers and dedicated HTTP/3 clients do).
@@ -202,7 +202,7 @@ wasm_route /hello = ./wasm/hello.wasm
 ```
 
 A working example ships at `wasm/hello.wasm` (source at
-`wasm/hello.wat`) — it echoes the real requested path back, proving
+`wasm/hello.wat`) - it echoes the real requested path back, proving
 the host passes genuine per-request data into the sandbox:
 
 ```bash
