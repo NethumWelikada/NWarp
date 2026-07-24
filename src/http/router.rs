@@ -1,13 +1,15 @@
 use crate::config::Config;
 use crate::http::request::Request;
 use crate::http::response::Response;
-use std::fs;
 use std::path::{Path, PathBuf};
+use tokio::fs;
 
 /// Resolves a request to a static file under document_root and builds
-/// the response. This is Phase 1 behavior (static files only) - the
-/// reverse-proxy and module system land in later phases.
-pub fn route(req: &Request, cfg: &Config) -> Response {
+/// the response. Runs on the async runtime - file I/O uses tokio::fs
+/// so a slow disk read never blocks the worker thread it runs on
+/// (Phase 4: this matters once many connections share a small pool of
+/// OS threads instead of getting one thread each).
+pub async fn route(req: &Request, cfg: &Config) -> Response {
     if req.method != "GET" && req.method != "HEAD" {
         let mut r = Response::new(405, "Method Not Allowed", &cfg.server_name);
         r.set_html_body("<h1>405 Method Not Allowed</h1>");
@@ -22,16 +24,20 @@ pub fn route(req: &Request, cfg: &Config) -> Response {
     let root = PathBuf::from(&cfg.document_root);
     let mut full_path = root.join(&rel_path);
 
-    if full_path.is_dir() {
+    if fs::metadata(&full_path)
+        .await
+        .map(|m| m.is_dir())
+        .unwrap_or(false)
+    {
         full_path = full_path.join(&cfg.index_file);
     }
 
     // Final safety check: resolved path must still live under document_root.
-    if !path_is_within(&full_path, &root) {
+    if !path_is_within(&full_path, &root).await {
         return Response::forbidden(&cfg.server_name);
     }
 
-    match fs::read(&full_path) {
+    match fs::read(&full_path).await {
         Ok(bytes) => {
             let mime = mime_for(&full_path);
             let mut r = Response::ok(&cfg.server_name);
@@ -42,9 +48,11 @@ pub fn route(req: &Request, cfg: &Config) -> Response {
     }
 }
 
-fn path_is_within(target: &Path, root: &Path) -> bool {
-    let root_abs = fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
-    match fs::canonicalize(target) {
+async fn path_is_within(target: &Path, root: &Path) -> bool {
+    let root_abs = fs::canonicalize(root)
+        .await
+        .unwrap_or_else(|_| root.to_path_buf());
+    match fs::canonicalize(target).await {
         Ok(target_abs) => target_abs.starts_with(&root_abs),
         // File may not exist yet (404 case) - fall back to lexical check.
         Err(_) => target.starts_with(root),

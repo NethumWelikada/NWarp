@@ -5,13 +5,13 @@ A modern, high-performance HTTP web server written in Rust, built by
 Dalhousie University, Halifax, Nova Scotia, Canada - engineered to go
 beyond what Apache and Nginx offer, not just replicate it.
 
-> Phase 1-3.5 (this release): static file serving, thread-pool concurrency,
-> config file, access/error logging, directory-traversal protection,
-> TLS/HTTPS via rustls (TLSv1.3), reverse proxy with round-robin load
-> balancing, and active upstream health checks. See
-> [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full roadmap:
-> an epoll/io_uring event loop, HTTP/2 & HTTP/3, and a WASM module
-> system that neither Apache nor Nginx offer natively.
+> Phase 1-4 (this release): static file serving, an async event loop
+> (Tokio, epoll-based on Linux), config file, access/error logging,
+> directory-traversal protection, TLS/HTTPS via rustls (TLSv1.3),
+> reverse proxy with round-robin load balancing, and active upstream
+> health checks. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for
+> the full roadmap: HTTP/2 & HTTP/3, and a WASM module system that
+> neither Apache nor Nginx offer natively.
 
 ## Requirements
 
@@ -193,8 +193,8 @@ nwarp/
 ## Roadmap
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the phased plan -
-an epoll/io_uring event loop, HTTP/2 & HTTP/3, and a WASM-based module
-system as the long-term differentiator against Apache and Nginx.
+HTTP/2 & HTTP/3, and a WASM-based module system as the long-term
+differentiator against Apache and Nginx.
 
 ## License
 

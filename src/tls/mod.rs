@@ -2,15 +2,16 @@ use crate::config::Config;
 use crate::logging::Logger;
 use crate::proxy::ProxyTable;
 use crate::server::connection::handle_generic;
-use crate::server::pool::ThreadPool;
-use rustls::{Certificate, PrivateKey, ServerConfig, ServerConnection, Stream};
+use rustls::{Certificate, PrivateKey, ServerConfig};
 use rustls_pemfile::{certs, pkcs8_private_keys, rsa_private_keys};
 use std::fs::File;
 use std::io::{self, BufReader};
-use std::net::TcpListener;
 use std::sync::Arc;
+use tokio::net::TcpListener;
+use tokio_rustls::TlsAcceptor;
 
-/// Loads a PEM certificate chain from disk.
+/// Loads a PEM certificate chain from disk. Runs once at startup
+/// (before the accept loop begins), so a blocking read here is fine.
 fn load_certs(path: &str) -> io::Result<Vec<Certificate>> {
     let file = File::open(path).map_err(|e| {
         io::Error::new(e.kind(), format!("could not open TLS cert '{}': {}", path, e))
@@ -63,39 +64,39 @@ pub fn build_tls_config(cfg: &Config) -> io::Result<Arc<ServerConfig>> {
     Ok(Arc::new(tls_config))
 }
 
-/// Runs the HTTPS accept loop on cfg.tls_port. Each connection performs
-/// a TLS handshake via rustls, then is handed to the same
-/// `handle_generic` request/response cycle used by plain HTTP - see
+/// Runs the HTTPS accept loop on cfg.tls_port. Each connection is
+/// accepted as a Tokio task (Phase 4), performs an async TLS handshake
+/// via tokio-rustls, then is handed to the same `handle_generic`
+/// request/response cycle used by plain HTTP - see
 /// server/connection.rs.
-pub fn run(cfg: Arc<Config>, logger: Arc<Logger>, proxy_table: Arc<ProxyTable>) -> io::Result<()> {
+pub async fn run(cfg: Arc<Config>, logger: Arc<Logger>, proxy_table: Arc<ProxyTable>) -> io::Result<()> {
     let tls_config = build_tls_config(&cfg)?;
+    let acceptor = TlsAcceptor::from(tls_config);
     let addr = format!("{}:{}", cfg.host, cfg.tls_port);
-    let listener = TcpListener::bind(&addr)?;
-    let pool = ThreadPool::new(cfg.worker_threads);
+    let listener = TcpListener::bind(&addr).await?;
 
     println!("{} listening on https://{}", cfg.server_name, addr);
 
-    for stream in listener.incoming() {
-        match stream {
-            Ok(mut tcp) => {
+    loop {
+        match listener.accept().await {
+            Ok((tcp, _)) => {
                 let cfg = Arc::clone(&cfg);
                 let logger = Arc::clone(&logger);
-                let tls_config = Arc::clone(&tls_config);
                 let proxy_table = Arc::clone(&proxy_table);
+                let acceptor = acceptor.clone();
 
-                pool.execute(move || {
+                tokio::spawn(async move {
                     let peer = tcp
                         .peer_addr()
                         .map(|a| a.to_string())
                         .unwrap_or_else(|_| "unknown".to_string());
 
-                    match ServerConnection::new(tls_config) {
-                        Ok(mut conn) => {
-                            let mut tls_stream = Stream::new(&mut conn, &mut tcp);
-                            handle_generic(&mut tls_stream, peer, cfg, logger, proxy_table);
+                    match acceptor.accept(tcp).await {
+                        Ok(mut tls_stream) => {
+                            handle_generic(&mut tls_stream, peer, cfg, logger, proxy_table).await;
                         }
                         Err(e) => {
-                            logger.error(&format!("TLS handshake setup failed for {}: {}", peer, e));
+                            logger.error(&format!("TLS handshake failed for {}: {}", peer, e));
                         }
                     }
                 });
@@ -105,6 +106,4 @@ pub fn run(cfg: Arc<Config>, logger: Arc<Logger>, proxy_table: Arc<ProxyTable>) 
             }
         }
     }
-
-    Ok(())
 }

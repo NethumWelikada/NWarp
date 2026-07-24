@@ -31,7 +31,26 @@ fn main() {
 
     let cfg = Config::load(&config_path);
 
-    if let Err(e) = server::listener::run(cfg) {
+    // The Tokio runtime's worker thread count is config-driven
+    // (`worker_threads`), which is only known after loading the config
+    // file above - so the runtime is built manually here rather than
+    // via the #[tokio::main] macro, which fixes the thread count at
+    // compile time.
+    let worker_threads = cfg.worker_threads.max(1);
+
+    let runtime = match tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(worker_threads)
+        .enable_all()
+        .build()
+    {
+        Ok(rt) => rt,
+        Err(e) => {
+            eprintln!("[nwarp] fatal: failed to start async runtime: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    if let Err(e) = runtime.block_on(server::listener::run(cfg)) {
         eprintln!("[nwarp] fatal: {}", e);
         std::process::exit(1);
     }

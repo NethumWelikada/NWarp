@@ -1,4 +1,4 @@
-use std::io::Write;
+use tokio::io::{AsyncWrite, AsyncWriteExt};
 
 pub struct Response {
     pub status_code: u16,
@@ -63,9 +63,9 @@ impl Response {
         self.body = bytes;
     }
 
-    /// Serializes and writes the response (headers + body) to any Write
-    /// stream (a plain TcpStream, or a TLS-wrapped stream).
-    pub fn send<W: Write>(&self, stream: &mut W) -> std::io::Result<()> {
+    /// Serializes and writes the response (headers + body) to any
+    /// async Write stream (a Tokio TcpStream, or a TLS-wrapped stream).
+    pub async fn send<W: AsyncWrite + Unpin>(&self, stream: &mut W) -> std::io::Result<()> {
         let headers = format!(
             "HTTP/1.1 {} {}\r\n\
              Server: {}\r\n\
@@ -79,9 +79,9 @@ impl Response {
             self.content_type,
             self.body.len()
         );
-        stream.write_all(headers.as_bytes())?;
-        stream.write_all(&self.body)?;
-        stream.flush()
+        stream.write_all(headers.as_bytes()).await?;
+        stream.write_all(&self.body).await?;
+        stream.flush().await
     }
 }
 

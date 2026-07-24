@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Read};
+use tokio::io::{AsyncBufReadExt, AsyncRead, BufReader};
 
 #[derive(Debug)]
 pub struct Request {
@@ -10,15 +10,16 @@ pub struct Request {
 }
 
 impl Request {
-    /// Parses an HTTP/1.x request line + headers off any Read stream
-    /// (a plain TcpStream, or a TLS-wrapped stream - see server/tls.rs).
-    /// Body parsing is intentionally left out of Phase 1/2 (static file
-    /// serving only needs the request line + headers).
-    pub fn parse<R: Read>(stream: &mut R) -> std::io::Result<Request> {
+    /// Parses an HTTP/1.x request line + headers off any async Read
+    /// stream (a Tokio TcpStream, or a TLS-wrapped stream - see
+    /// server/tls.rs). Body parsing is intentionally left out of
+    /// Phase 1-4 (static file serving and header-based proxying don't
+    /// need it yet).
+    pub async fn parse<R: AsyncRead + Unpin>(stream: &mut R) -> std::io::Result<Request> {
         let mut reader = BufReader::new(stream);
 
         let mut request_line = String::new();
-        reader.read_line(&mut request_line)?;
+        reader.read_line(&mut request_line).await?;
         let request_line = request_line.trim_end();
 
         let mut parts = request_line.split_whitespace();
@@ -29,7 +30,7 @@ impl Request {
         let mut headers = HashMap::new();
         loop {
             let mut line = String::new();
-            let bytes = reader.read_line(&mut line)?;
+            let bytes = reader.read_line(&mut line).await?;
             if bytes == 0 || line.trim().is_empty() {
                 break;
             }

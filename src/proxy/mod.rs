@@ -1,14 +1,14 @@
 use crate::config::Config;
 use crate::http::request::Request;
-use std::io::{self, Read, Write};
-use std::net::{TcpStream, ToSocketAddrs};
+use std::io;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::thread;
 use std::time::Duration;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::net::TcpStream;
 
 /// A single upstream target within a proxy route. `healthy` is updated
-/// in the background by the health-check thread (Phase 3.5) and read
+/// in the background by the health-check task (Phase 3.5) and read
 /// on every request without locking.
 pub struct UpstreamTarget {
     pub addr: String,
@@ -47,8 +47,8 @@ impl ProxyRoute {
 
 /// The full set of configured proxy routes, built once at startup from
 /// `proxy_route` lines in nwarp.conf and shared (read-only structure,
-/// atomic health/counter state) across all connection threads and the
-/// background health-check thread.
+/// atomic health/counter state) across all connection tasks and the
+/// background health-check task.
 pub struct ProxyTable {
     routes: Vec<ProxyRoute>,
 }
@@ -86,41 +86,41 @@ impl ProxyTable {
     }
 
     /// True if this table has at least one configured route (used to
-    /// decide whether it's worth spawning the health-check thread).
+    /// decide whether it's worth spawning the health-check task).
     pub fn has_routes(&self) -> bool {
         !self.routes.is_empty()
     }
 }
 
-/// Spawns the Phase 3.5 background health-check thread. Every
-/// `interval`, it attempts a TCP connect (bounded by `timeout`) to
-/// every configured upstream and updates its healthy/unhealthy flag.
-/// This is a basic connectivity check (TCP reachability), not an
-/// application-level check - documented as a known scope boundary.
+/// Spawns the Phase 3.5 background health-check task on the Tokio
+/// runtime. Every `interval`, it attempts a TCP connect (bounded by
+/// `timeout`) to every configured upstream and updates its
+/// healthy/unhealthy flag. This is a basic connectivity check (TCP
+/// reachability), not an application-level check - documented as a
+/// known scope boundary.
 pub fn spawn_health_checker(
     table: Arc<ProxyTable>,
     interval: Duration,
     timeout: Duration,
-) -> thread::JoinHandle<()> {
-    thread::spawn(move || loop {
-        for route in &table.routes {
-            for target in &route.targets {
-                let ok = tcp_connect_ok(strip_scheme(&target.addr), timeout);
-                target.healthy.store(ok, Ordering::Relaxed);
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        loop {
+            for route in &table.routes {
+                for target in &route.targets {
+                    let ok = tcp_connect_ok(strip_scheme(&target.addr), timeout).await;
+                    target.healthy.store(ok, Ordering::Relaxed);
+                }
             }
+            tokio::time::sleep(interval).await;
         }
-        thread::sleep(interval);
     })
 }
 
-fn tcp_connect_ok(addr: &str, timeout: Duration) -> bool {
-    match addr.to_socket_addrs() {
-        Ok(mut addrs) => match addrs.next() {
-            Some(sock_addr) => TcpStream::connect_timeout(&sock_addr, timeout).is_ok(),
-            None => false,
-        },
-        Err(_) => false,
-    }
+async fn tcp_connect_ok(addr: &str, timeout: Duration) -> bool {
+    matches!(
+        tokio::time::timeout(timeout, TcpStream::connect(addr)).await,
+        Ok(Ok(_))
+    )
 }
 
 /// Strips the scheme from an upstream URL (`http://host:port` ->
@@ -141,7 +141,7 @@ fn strip_scheme(upstream: &str) -> &str {
 /// route, or if the connection/relay itself fails - see
 /// `server::connection::handle_generic` for how each case maps to a
 /// client-facing status code (503 vs 502 respectively).
-pub fn relay<S: Write>(
+pub async fn relay<S: AsyncWrite + Unpin>(
     req: &Request,
     route: &ProxyRoute,
     client: &mut S,
@@ -152,9 +152,7 @@ pub fn relay<S: Write>(
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "no healthy upstream available"))?;
     let upstream_addr = strip_scheme(upstream_addr);
 
-    let mut upstream = TcpStream::connect(upstream_addr)?;
-    upstream.set_read_timeout(Some(Duration::from_secs(10)))?;
-    upstream.set_write_timeout(Some(Duration::from_secs(10)))?;
+    let mut upstream = TcpStream::connect(upstream_addr).await?;
 
     let mut request_text = format!(
         "{} {} HTTP/1.1\r\nHost: {}\r\nX-Forwarded-For: {}\r\nConnection: close\r\n",
@@ -168,17 +166,23 @@ pub fn relay<S: Write>(
     }
     request_text.push_str("\r\n");
 
-    upstream.write_all(request_text.as_bytes())?;
+    upstream.write_all(request_text.as_bytes()).await?;
 
-    let mut response_bytes = Vec::new();
-    upstream.read_to_end(&mut response_bytes)?;
+    let response_bytes =
+        tokio::time::timeout(Duration::from_secs(10), read_all(&mut upstream)).await??;
 
     let status = extract_status(&response_bytes);
 
-    client.write_all(&response_bytes)?;
-    client.flush()?;
+    client.write_all(&response_bytes).await?;
+    client.flush().await?;
 
     Ok(status)
+}
+
+async fn read_all<R: AsyncRead + Unpin>(stream: &mut R) -> io::Result<Vec<u8>> {
+    let mut buf = Vec::new();
+    stream.read_to_end(&mut buf).await?;
+    Ok(buf)
 }
 
 fn extract_status(response: &[u8]) -> u16 {

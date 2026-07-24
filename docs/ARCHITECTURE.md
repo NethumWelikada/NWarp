@@ -5,11 +5,10 @@ Dalhousie University, Halifax, Nova Scotia, Canada.*
 
 ## Phase 1: Foundation (done)
 
-- **Concurrency model:** thread-per-connection, bounded by a fixed-size
-  thread pool (`worker_threads` in config, default 4). See
-  `src/server/pool.rs`.
-- **I/O:** blocking std TCP sockets (`std::net::TcpListener`). No async
-  runtime yet.
+- **Concurrency model (original):** thread-per-connection, bounded by a
+  fixed-size thread pool. Superseded by the async event loop in
+  Phase 4 below - kept here for the historical record of how the
+  project started.
 - **Serving:** static files only, resolved under `document_root`.
   Directory traversal (`..`) is blocked at two layers: string sanitation
   in `http::request::sanitize_path`, and a canonicalized-path check in
@@ -94,11 +93,54 @@ Dalhousie University, Halifax, Nova Scotia, Canada.*
     could route to a dead upstream once before the first check catches
     it.
 
+## Phase 4: Async event loop (done)
+
+- **Runtime:** [Tokio](https://tokio.rs) multi-threaded scheduler,
+  using epoll as its I/O reactor on Linux. Replaces the Phase 1
+  thread-per-connection model (`server/pool.rs`, now removed) with
+  Tokio tasks - lightweight, non-blocking units of work multiplexed
+  onto a small, fixed pool of OS threads (`worker_threads` in config
+  now sizes the Tokio runtime directly, via
+  `tokio::runtime::Builder::new_multi_thread().worker_threads(n)`).
+- **Why this matters:** under thread-per-connection, every open
+  connection holds an entire OS thread (with its own stack, scheduling
+  overhead, and a hard ceiling around what the OS can context-switch
+  between efficiently) for as long as it's open, even while idle or
+  waiting on I/O. Under the Tokio model, a connection's task yields
+  control at every `.await` point (waiting on a socket read/write,
+  a file read, a timer) instead of blocking a whole thread, so a
+  handful of OS threads can service many thousands of concurrent
+  connections - the same model Nginx's worker processes use
+  internally (Nginx just implements its own event loop in C rather
+  than using a runtime like Tokio).
+- **What changed to make this work:** `http::request::Request::parse`
+  and `http::response::Response::send` are now `async fn`, generic
+  over `AsyncRead`/`AsyncWrite` (via `tokio::io`) instead of the
+  blocking `std::io::Read`/`Write` traits used in Phase 1-3.5. Static
+  file reads in `http::router::route` now use `tokio::fs` instead of
+  `std::fs`, so a slow disk read no longer blocks a runtime thread
+  either. TLS moved from the blocking `rustls::Stream` wrapper to
+  `tokio-rustls`'s async `TlsAcceptor`. The proxy relay and health
+  checker (`proxy/mod.rs`) were rewritten the same way, using
+  `tokio::net::TcpStream` and `tokio::time`.
+- **Verified:** full regression pass across every earlier phase under
+  the new model - static files (200), TLS handshake (confirmed
+  TLSv1.3 / `TLS_AES_256_GCM_SHA384` again post-rewrite), proxy
+  round-robin (A/B/A/B), health-check failover (all traffic correctly
+  routed to the surviving upstream after a check cycle), and 80
+  simultaneous client requests completing successfully against a
+  single NWarp process.
+- **Known limitation:** this is epoll via Tokio, not raw io_uring.
+  io_uring (lower syscall overhead than epoll under very high
+  connection counts) remains a possible future refinement, but Tokio's
+  epoll-based reactor is already the same class of I/O model Nginx
+  uses, and is a substantial, verified upgrade over Phase 1-3.5's
+  thread-per-connection approach.
+
 ## Planned phases
 
 | Phase | Goal |
 |---|---|
-| 4 | Move from thread-per-connection to an epoll/io_uring event loop |
 | 5 | HTTP/2, then HTTP/3 (QUIC) |
 | 6 | WASM module system for request handlers (the "advanced feature" differentiator vs Apache/Nginx) |
 | 7 | Config hot-reload, structured (OpenTelemetry) logging, `.deb`/`.rpm` packaging polish |
@@ -107,23 +149,24 @@ Dalhousie University, Halifax, Nova Scotia, Canada.*
 
 ```
 src/
-├── main.rs           entry point, CLI args, config path resolution
+├── main.rs           entry point, CLI args, config load, builds the
+│                     Tokio runtime (worker_threads-sized) and blocks on it
 ├── config/mod.rs      config file loading (incl. TLS + proxy_route settings)
 ├── http/
-│   ├── request.rs      request-line + header parsing, path sanitization
-│   │                   (generic over any Read stream)
-│   ├── response.rs      status line + header + body serialization
-│   │                   (generic over any Write stream)
-│   └── router.rs        static file resolution, MIME type mapping
+│   ├── request.rs      async request-line + header parsing, path sanitization
+│   │                   (generic over any AsyncRead stream)
+│   ├── response.rs      async status line + header + body serialization
+│   │                   (generic over any AsyncWrite stream)
+│   └── router.rs        async static file resolution (tokio::fs), MIME mapping
 ├── server/
-│   ├── listener.rs      plain HTTP TCP bind + accept loop, spawns TLS thread,
+│   ├── listener.rs      async HTTP accept loop, tokio::spawn per connection,
 │   │                   builds the shared ProxyTable
-│   ├── pool.rs           fixed-size thread pool
-│   └── connection.rs     shared request/response cycle (handle_generic):
+│   └── connection.rs     shared async request/response cycle (handle_generic):
 │                         checks proxy routes first, falls through to
 │                         static file serving - used by both HTTP and HTTPS
 ├── proxy/mod.rs        ProxyTable, round-robin + health-tracked upstream
-│                       selection, background health checker, relay logic
-├── tls/mod.rs          rustls config, cert/key loading, HTTPS accept loop
+│                       selection, async background health checker, async relay
+├── tls/mod.rs          rustls config, cert/key loading, async HTTPS accept
+│                       loop via tokio-rustls
 └── logging/mod.rs      access/error log writer
 ```

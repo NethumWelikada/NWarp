@@ -2,22 +2,27 @@ use crate::config::Config;
 use crate::logging::Logger;
 use crate::proxy::ProxyTable;
 use crate::server::connection;
-use crate::server::pool::ThreadPool;
-use std::net::TcpListener;
 use std::sync::Arc;
-use std::thread;
+use tokio::net::TcpListener;
 
-pub fn run(cfg: Config) -> std::io::Result<()> {
+/// Runs the plain HTTP accept loop. Phase 4: each accepted connection
+/// becomes a lightweight Tokio task (`tokio::spawn`) instead of an OS
+/// thread - the async runtime multiplexes many tasks onto
+/// `worker_threads` real OS threads via an epoll-based reactor
+/// (Tokio's default on Linux), so the number of concurrent connections
+/// is no longer bounded by how many threads the OS can schedule.
+pub async fn run(cfg: Config) -> std::io::Result<()> {
     let logger = Arc::new(Logger::new(&cfg.access_log, &cfg.error_log));
     let proxy_table = Arc::new(ProxyTable::from_config(&cfg));
     let addr = format!("{}:{}", cfg.host, cfg.port);
-    let listener = TcpListener::bind(&addr)?;
-    let pool = ThreadPool::new(cfg.worker_threads);
+    let listener = TcpListener::bind(&addr).await?;
     let cfg = Arc::new(cfg);
 
     println!("{} listening on http://{}", cfg.server_name, addr);
     println!("Serving files from: {}", cfg.document_root);
-    println!("Worker threads: {}", cfg.worker_threads);
+    println!("Runtime worker threads: {}", cfg.worker_threads);
+    println!("Concurrency model: async event loop (Tokio, epoll on Linux)");
+
     if !cfg.proxy_routes.is_empty() {
         for (prefix, upstreams) in &cfg.proxy_routes {
             println!("Proxying {} -> {}", prefix, upstreams.join(", "));
@@ -36,28 +41,29 @@ pub fn run(cfg: Config) -> std::io::Result<()> {
         );
     }
 
-    // Phase 2: if TLS is enabled, run the HTTPS accept loop on its own
-    // thread alongside plain HTTP. Failure to start TLS logs an error
-    // but does not bring down the plain HTTP listener.
+    // Phase 2: if TLS is enabled, run the HTTPS accept loop as its own
+    // Tokio task alongside plain HTTP. Failure to start TLS logs an
+    // error but does not bring down the plain HTTP listener.
     if cfg.tls_enabled {
         let tls_cfg = Arc::clone(&cfg);
         let tls_logger = Arc::clone(&logger);
         let tls_proxy_table = Arc::clone(&proxy_table);
-        thread::spawn(move || {
-            if let Err(e) = crate::tls::run(tls_cfg, Arc::clone(&tls_logger), tls_proxy_table) {
+        tokio::spawn(async move {
+            if let Err(e) = crate::tls::run(tls_cfg, Arc::clone(&tls_logger), tls_proxy_table).await
+            {
                 tls_logger.error(&format!("TLS listener failed to start: {}", e));
             }
         });
     }
 
-    for stream in listener.incoming() {
-        match stream {
-            Ok(stream) => {
+    loop {
+        match listener.accept().await {
+            Ok((stream, _)) => {
                 let cfg = Arc::clone(&cfg);
                 let logger = Arc::clone(&logger);
                 let proxy_table = Arc::clone(&proxy_table);
-                pool.execute(move || {
-                    connection::handle(stream, cfg, logger, proxy_table);
+                tokio::spawn(async move {
+                    connection::handle(stream, cfg, logger, proxy_table).await;
                 });
             }
             Err(e) => {
@@ -65,6 +71,4 @@ pub fn run(cfg: Config) -> std::io::Result<()> {
             }
         }
     }
-
-    Ok(())
 }
