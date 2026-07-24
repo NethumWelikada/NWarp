@@ -1,5 +1,4 @@
 use std::io::Write;
-use std::net::TcpStream;
 
 pub struct Response {
     pub status_code: u16,
@@ -52,8 +51,9 @@ impl Response {
         self.body = bytes;
     }
 
-    /// Serializes and writes the response (headers + body) to the socket.
-    pub fn send(&self, stream: &mut TcpStream) -> std::io::Result<()> {
+    /// Serializes and writes the response (headers + body) to any Write
+    /// stream (a plain TcpStream, or a TLS-wrapped stream).
+    pub fn send<W: Write>(&self, stream: &mut W) -> std::io::Result<()> {
         let headers = format!(
             "HTTP/1.1 {} {}\r\n\
              Server: {}\r\n\

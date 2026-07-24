@@ -130,7 +130,7 @@
 <body>
 
 <header>
-  <div class="badge">Phase 1 &middot; Static File Server</div>
+  <div class="badge">Phase 1-2 &middot; Static Files + TLS</div>
   <h1>A web server built the way<br><span class="accent">you'll actually push it further.</span></h1>
   <p class="tagline">NWarp is a modern HTTP server written in Rust - engineered to go beyond what Apache and Nginx offer, not just replicate it.</p>
 </header>
@@ -149,9 +149,10 @@
   </div>
 
   <div class="card">
-    <h2>What NWarp does today (Phase 1)</h2>
+    <h2>What NWarp does today (Phase 1-2)</h2>
     <ul class="checklist">
       <li>Serves static files (HTML, CSS, JS, images) over HTTP/1.1</li>
+      <li>HTTPS via TLSv1.3 (rustls), running alongside plain HTTP</li>
       <li>Thread-pool concurrency, sized by <code>worker_threads</code></li>
       <li>Config-driven document root, host, and port</li>
       <li>Access &amp; error logging to file</li>
@@ -173,7 +174,7 @@
   <div class="card">
     <h2>Roadmap: built to go beyond Apache and Nginx</h2>
     <p>
-      Phase 1 is the foundation. Planned phases add TLS termination,
+      Phase 1-2 are done: static files and TLS/HTTPS. Planned phases add
       reverse proxy and load balancing, HTTP/2 and HTTP/3, and a WASM
       module system for request handlers - a capability neither Apache
       nor Nginx offer natively. See <code>docs/ARCHITECTURE.md</code>

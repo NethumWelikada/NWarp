@@ -5,10 +5,10 @@ A modern, high-performance HTTP web server written in Rust, built by
 Dalhousie University, Halifax, Nova Scotia, Canada - engineered to go
 beyond what Apache and Nginx offer, not just replicate it.
 
-> Phase 1 (this release): static file serving, thread-pool concurrency,
-> config file, access/error logging, directory-traversal protection -
-> the foundation. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for
-> the full roadmap: TLS, reverse proxy + load balancing, HTTP/2 & HTTP/3,
+> Phase 1-2 (this release): static file serving, thread-pool concurrency,
+> config file, access/error logging, directory-traversal protection, and
+> TLS/HTTPS via rustls (TLSv1.3). See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+> for the full roadmap: reverse proxy + load balancing, HTTP/2 & HTTP/3,
 > and a WASM module system that neither Apache nor Nginx offer natively.
 
 ## Requirements
@@ -45,10 +45,48 @@ index = index.html
 worker_threads = 4
 access_log = ./logs/access.log
 error_log = ./logs/error.log
+
+tls_enabled = false
+tls_port = 9443
+tls_cert = ./certs/dev-cert.pem
+tls_key = ./certs/dev-key.pem
 ```
 
 Point `document_root` at any folder of static files (HTML, CSS, JS,
 images) and NWarp will serve it.
+
+## HTTPS / TLS (Phase 2)
+
+NWarp supports TLS via [rustls](https://github.com/rustls/rustls),
+negotiating TLSv1.3 with modern cipher suites. The plain HTTP listener
+and the HTTPS listener run at the same time on separate ports, so
+enabling TLS doesn't disable HTTP.
+
+**1. Generate a certificate.** For local development/testing, generate
+a self-signed one:
+
+```bash
+./scripts/generate-dev-cert.sh
+```
+
+For a real deployment, use a certificate from a real CA (e.g.
+[Let's Encrypt](https://letsencrypt.org)) instead - self-signed
+certificates will show a browser warning and should never be used
+publicly.
+
+**2. Enable it in `configs/nwarp.conf`:**
+
+```ini
+tls_enabled = true
+tls_port = 9443
+tls_cert = ./certs/dev-cert.pem
+tls_key = ./certs/dev-key.pem
+```
+
+**3. Restart NWarp**, then visit `https://localhost:9443` (your
+browser will warn about the self-signed cert during local testing -
+that's expected; proceed past it, or use a real CA cert to avoid the
+warning entirely).
 
 ## Installing system-wide (like `apache2`/`nginx`)
 
@@ -102,6 +140,8 @@ nwarp/
 ├── src/                  Rust source (see docs/ARCHITECTURE.md)
 ├── configs/nwarp.conf     default config
 ├── www/                   default site content served out of the box
+├── certs/                 TLS certs go here (gitignored, generate your own)
+├── scripts/generate-dev-cert.sh   self-signed dev cert generator
 ├── packaging/
 │   ├── systemd/            nwarp.service unit file
 │   └── debian/             .deb control file (Tier 2 packaging, WIP)
@@ -113,9 +153,9 @@ nwarp/
 ## Roadmap
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the phased plan -
-TLS termination, reverse proxy + load balancing, HTTP/2 & HTTP/3, and a
-WASM-based module system as the long-term differentiator against
-Apache and Nginx.
+reverse proxy + load balancing, HTTP/2 & HTTP/3, and a WASM-based
+module system as the long-term differentiator against Apache and
+Nginx.
 
 ## License
 

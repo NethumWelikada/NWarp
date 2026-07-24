@@ -14,6 +14,10 @@ pub struct Config {
     pub worker_threads: usize,
     pub access_log: String,
     pub error_log: String,
+    pub tls_enabled: bool,
+    pub tls_port: u16,
+    pub tls_cert: String,
+    pub tls_key: String,
 }
 
 impl Default for Config {
@@ -27,6 +31,10 @@ impl Default for Config {
             worker_threads: 4,
             access_log: "./logs/access.log".to_string(),
             error_log: "./logs/error.log".to_string(),
+            tls_enabled: false,
+            tls_port: 9443,
+            tls_cert: "./certs/dev-cert.pem".to_string(),
+            tls_key: "./certs/dev-key.pem".to_string(),
         }
     }
 }
@@ -82,6 +90,20 @@ impl Config {
         }
         if let Some(v) = map.get("error_log") {
             cfg.error_log = v.clone();
+        }
+        if let Some(v) = map.get("tls_enabled") {
+            cfg.tls_enabled = v.eq_ignore_ascii_case("true") || v == "1";
+        }
+        if let Some(v) = map.get("tls_port") {
+            if let Ok(p) = v.parse::<u16>() {
+                cfg.tls_port = p;
+            }
+        }
+        if let Some(v) = map.get("tls_cert") {
+            cfg.tls_cert = v.clone();
+        }
+        if let Some(v) = map.get("tls_key") {
+            cfg.tls_key = v.clone();
         }
 
         cfg

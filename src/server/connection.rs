@@ -3,24 +3,37 @@ use crate::http::request::Request;
 use crate::http::response::Response;
 use crate::http::router;
 use crate::logging::Logger;
+use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::sync::Arc;
 
-/// Handles a single client connection end-to-end: parse -> route -> respond.
-/// Runs on its own OS thread (see server::listener for the thread-per-connection
-/// model used in Phase 1).
+/// Handles a single client connection end-to-end over a plain TCP socket:
+/// parse -> route -> respond. Runs on its own pooled thread.
 pub fn handle(mut stream: TcpStream, cfg: Arc<Config>, logger: Arc<Logger>) {
     let peer = stream
         .peer_addr()
         .map(|a| a.to_string())
         .unwrap_or_else(|_| "unknown".to_string());
 
-    let request = match Request::parse(&stream) {
+    handle_generic(&mut stream, peer, cfg, logger);
+}
+
+/// Shared request/response cycle, generic over any stream that can be
+/// read from and written to. This is what lets the exact same routing
+/// and logging logic serve both plain HTTP (TcpStream) and HTTPS
+/// (rustls::Stream) without duplicating code - see server/tls.rs.
+pub fn handle_generic<S: Read + Write>(
+    stream: &mut S,
+    peer: String,
+    cfg: Arc<Config>,
+    logger: Arc<Logger>,
+) {
+    let request = match Request::parse(stream) {
         Ok(r) => r,
         Err(e) => {
             logger.error(&format!("failed to parse request from {}: {}", peer, e));
             let resp = Response::internal_error(&cfg.server_name);
-            let _ = resp.send(&mut stream);
+            let _ = resp.send(stream);
             return;
         }
     };
@@ -28,7 +41,7 @@ pub fn handle(mut stream: TcpStream, cfg: Arc<Config>, logger: Arc<Logger>) {
     let response = router::route(&request, &cfg);
     logger.access(&request.method, &request.path, response.status_code, &peer);
 
-    if let Err(e) = response.send(&mut stream) {
+    if let Err(e) = response.send(stream) {
         logger.error(&format!("failed to write response to {}: {}", peer, e));
     }
 }

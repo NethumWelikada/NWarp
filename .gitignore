@@ -2,4 +2,5 @@
 Cargo.lock
 *.log
 logs/*.log
+certs/*.pem
 .DS_Store

@@ -11,6 +11,10 @@ repository = "https://github.com/YOUR-USERNAME/nwarp"
 name = "nwarpd"
 path = "src/main.rs"
 
+[dependencies]
+rustls = "0.21"
+rustls-pemfile = "1"
+
 [profile.release]
 opt-level = 3
 lto = true

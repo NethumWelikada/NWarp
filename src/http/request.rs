@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read};
-use std::net::TcpStream;
 
 #[derive(Debug)]
 pub struct Request {
@@ -11,11 +10,12 @@ pub struct Request {
 }
 
 impl Request {
-    /// Parses an HTTP/1.x request line + headers off the socket.
-    /// Body parsing is intentionally left out of Phase 1 (static file
+    /// Parses an HTTP/1.x request line + headers off any Read stream
+    /// (a plain TcpStream, or a TLS-wrapped stream - see server/tls.rs).
+    /// Body parsing is intentionally left out of Phase 1/2 (static file
     /// serving only needs the request line + headers).
-    pub fn parse(stream: &TcpStream) -> std::io::Result<Request> {
-        let mut reader = BufReader::new(stream.try_clone()?);
+    pub fn parse<R: Read>(stream: &mut R) -> std::io::Result<Request> {
+        let mut reader = BufReader::new(stream);
 
         let mut request_line = String::new();
         reader.read_line(&mut request_line)?;
@@ -77,12 +77,4 @@ fn percent_decode(input: &str) -> String {
         i += 1;
     }
     String::from_utf8_lossy(&out).to_string()
-}
-
-#[allow(dead_code)]
-pub fn read_exact_body(stream: &TcpStream, len: usize) -> std::io::Result<Vec<u8>> {
-    let mut buf = vec![0u8; len];
-    let mut s = stream.try_clone()?;
-    s.read_exact(&mut buf)?;
-    Ok(buf)
 }

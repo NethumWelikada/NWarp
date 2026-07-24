@@ -2,6 +2,7 @@ mod config;
 mod http;
 mod logging;
 mod server;
+mod tls;
 
 use config::Config;
 use std::env;
